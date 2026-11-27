@@ -17,6 +17,7 @@ const NAV_BORDER := 4.0
 const MAPS := [
 	["res://scripts/map_valley.gd", "Долина «Гранит»", "1,2 км, опорная база и деревни, 6 целей"],
 	["res://scripts/map_airfield.gd", "Аэродром «Северный»", "1,4 км, взлётка и зенитная позиция, 5 целей"],
+	["res://scripts/map_pass.gd", "Перевал «Седло»", "1,2 км, серпантин, мост и застава, 4 цели"],
 ]
 
 var rng := RandomNumberGenerator.new()
@@ -1407,6 +1408,8 @@ var tree_mix := {"broadleaf": 0.34, "searsia": 0.3, "fir": 0.24, "dead": 0.12}
 ## Доля площади под рощами (0..1) и плотность деревьев (1 — шаг сетки 8 м).
 var grove_share := 0.3
 var tree_density := 0.8
+## Выше этой отметки деревья не растут (граница леса).
+var tree_max_h := 40.0
 var veg_cell_grass := 22.0
 var veg_cell_tree := 45.0
 
@@ -1567,7 +1570,7 @@ func _build_veg_trees() -> void:
 		if absf(x) > lim or absf(z) > lim or not _free_spot(x, z, 2.5) or road_dist(x, z) < 5.5:
 			continue
 		var gy := ground(x, z)
-		if gy > 40.0:
+		if gy > tree_max_h:
 			continue
 		if absf(ground(x + 2.0, z) - ground(x - 2.0, z)) > 2.2 or absf(ground(x, z + 2.0) - ground(x, z - 2.0)) > 2.2:
 			continue
