@@ -310,6 +310,23 @@ func _goal_marks(c: Control, p: Player, mis: Mission) -> void:
 			placed.append(at)
 			for i in 2:
 				ub.draw_circle(at + dir * (22.0 + i * 9.0), 4.0 - i * 1.4, Color(col, 0.9))
+		else:
+			# метки в одном направлении: стопка по вертикали с линией-выноской к объекту
+			for off in [0.0, -46.0, 46.0, -92.0, 92.0, -138.0, 138.0]:
+				var cand2 := sp + Vector2(0, off)
+				if cand2.y < 100.0 or cand2.y > sz.y - 90.0:
+					continue
+				var clash2 := false
+				for q in placed:
+					if (q as Vector2).distance_to(cand2) < 42.0:
+						clash2 = true
+				if not clash2:
+					at = cand2
+					break
+			placed.append(at)
+			if at.distance_to(sp) > 1.0:
+				ub.draw_line(sp, at, Color(col, 0.7), 1.5)
+				ub.draw_circle(sp, 3.0, Color(col, 0.9))
 		ub.draw_circle(at, 14.0, Color(0, 0, 0, 0.55))
 		ub.draw_arc(at, 14.0, 0.0, TAU, 24, col, 2.0)
 		text(c, at + Vector2(-20, 6), MapView.label_of(g), 16, Color(1, 1, 1, 0.97), HORIZONTAL_ALIGNMENT_CENTER, 40.0)

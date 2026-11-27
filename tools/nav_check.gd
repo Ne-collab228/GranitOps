@@ -5,9 +5,13 @@ extends SceneTree
 
 func _init() -> void:
 	var a := OS.get_cmdline_user_args()
+	if a.size() < 2:
+		print("Использование: --script res://tools/nav_check.gd -- <ключ карты> <число кусков>")
+		quit(1)
+		return
 	var key: String = a[0]
 	var n := int(a[1])
-	var q := 0.25 * 0.01
+	var q := 0.025  # шаг сетки _nav_clean (Level), вершины уже на ней
 	var edges := {}
 	for i in n:
 		var nm: NavigationMesh = load("res://assets/nav/%s/%d.res" % [key, i])

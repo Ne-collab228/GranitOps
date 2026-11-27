@@ -331,7 +331,7 @@ func explode(by_player := true) -> void:
 	ai = false
 	# часть экипажа успевает выброситься: раненые, настороже; остальные гибнут вместе с машиной
 	if not crew.is_empty():
-		_dismount(true)
+		call_deferred("_dismount", true)  # взрыв может прийти из физического колбэка — спавн экипажа вне его
 
 
 # ------------------------------------------------------------------ ИИ-водитель
@@ -341,10 +341,18 @@ func start_ai(path: PackedVector3Array, crew_spawns: Array, start_i := 0) -> voi
 	route_i = clampi(start_i, 0, path.size() - 1)
 	crew = crew_spawns
 	ai_state = 0
+	_prog_pos = global_position
 	cruise = randf_range(10.0, 14.0)
 
 
+var odo := 0.0  # пройденный путь ИИ-машины (для --vehtest)
+var _odo_prev := Vector3.INF
+
+
 func _ai(delta: float) -> void:
+	if _odo_prev != Vector3.INF:
+		odo += global_position.distance_to(_odo_prev)
+	_odo_prev = global_position
 	if ai_state == 1 or route.size() < 2:
 		steer_in = 0.0
 		throttle_in = -signf(speed) if absf(speed) > 0.5 else 0.0  # тормозить в любую сторону (в _drive минус при движении вперёд — тормоз, плюс при заднем ходе — тоже)

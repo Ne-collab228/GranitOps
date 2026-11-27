@@ -238,10 +238,16 @@ func _mark_map_cards() -> void:
 
 
 ## Выбор карты: сохраняем и перезагружаем сцену — старый уровень освобождается, строится новый.
+var _map_busy := false  # идёт перезагрузка сцены: повторные нажатия игнорируем
+
+
 func _pick_map(i: int) -> void:
+	if _map_busy:
+		return
 	_mark_map_cards()
 	if i == int(Settings.data.map):
 		return
+	_map_busy = true
 	Settings.data.map = i
 	Settings.save()
 	_mark_map_cards()

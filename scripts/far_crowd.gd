@@ -89,8 +89,8 @@ func _process(_delta: float) -> void:
 			var d := e.global_position.distance_to(cp)
 			far = d > (thr - HYST if e.crowd else thr + HYST) and d < MAX_D
 			if far and not _baked[e.kind]:
-				# поза берётся у первого стоящего солдата этого вида (пост, ожидание)
-				if e.crouch < 0.05 and Vector2(e.velocity.x, e.velocity.z).length() < 0.1 and e._posed:
+				# поза берётся у первого стоящего спокойного солдата этого вида (пост, ожидание; не целящегося и не в тревоге)
+				if (e.state == Enemy.St.IDLE or e.state == Enemy.St.PATROL) and not e.sees and absf(e.aim_pitch) < 0.05 and e.crouch < 0.05 and Vector2(e.velocity.x, e.velocity.z).length() < 0.1 and e._posed:
 					_mm[e.kind].multimesh.mesh = bake(SoldierRig.mesh(e.kind, 1), e.skel, SoldierRig.skin(e.skel))
 					_baked[e.kind] = true
 				else:

@@ -310,7 +310,10 @@ static func _shaped(s: String, size: int, f: Font) -> TextLine:
 	var tl: TextLine = _lines_cache.get(key)
 	if tl == null:
 		if _lines_cache.size() > 400:
-			_lines_cache.clear()
+			# вытесняем самые старые 100 (словарь хранит порядок вставки), а не весь кэш — без рывка
+			var old: Array = _lines_cache.keys().slice(0, 100)
+			for k in old:
+				_lines_cache.erase(k)
 		tl = TextLine.new()
 		tl.add_string(s, f, size)
 		_lines_cache[key] = tl

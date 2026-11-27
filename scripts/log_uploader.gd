@@ -75,6 +75,7 @@ func run() -> void:
 			Blackbox.event("журналы: " + status)
 			break
 		n += 1
+		await get_tree().create_timer(1.0).timeout  # пауза между файлами, чтобы не было рывков
 	if n > 0:
 		Blackbox.event("журналы отправлены: %d" % n)
 	_prune()
@@ -124,7 +125,8 @@ func _ensure_branch() -> bool:
 	if int(r[0]) == 200:
 		return true
 	if int(r[0]) != 404:
-		status = "ветка: код %d" % int(r[0])
+		if int(r[0]) != 0:  # при коде 0 статус уже записан в _req («сеть: ошибка»)
+			status = "ветка: код %d" % int(r[0])
 		return false
 	var base := "main"
 	var ri: Array = await _req(HTTPClient.METHOD_GET, "/repos/%s" % _repo)
@@ -132,13 +134,15 @@ func _ensure_branch() -> bool:
 		base = str((ri[1] as Dictionary).get("default_branch", "main"))
 	var rb: Array = await _req(HTTPClient.METHOD_GET, "/repos/%s/git/ref/heads/%s" % [_repo, base])
 	if int(rb[0]) != 200 or not (rb[1] is Dictionary):
-		status = "основная ветка: код %d" % int(rb[0])
+		if int(rb[0]) != 0:
+			status = "основная ветка: код %d" % int(rb[0])
 		return false
 	var sha := str(((rb[1] as Dictionary).get("object", {}) as Dictionary).get("sha", ""))
 	var rc: Array = await _req(HTTPClient.METHOD_POST, "/repos/%s/git/refs" % _repo, {"ref": "refs/heads/" + _branch, "sha": sha})
 	if int(rc[0]) == 201 or int(rc[0]) == 422:  # 422 — уже создана параллельно
 		return true
-	status = "создание ветки: код %d" % int(rc[0])
+	if int(rc[0]) != 0:
+		status = "создание ветки: код %d" % int(rc[0])
 	return false
 
 
@@ -146,8 +150,11 @@ func _send_file(fname: String) -> bool:
 	var path := DIR.path_join(fname)
 	var bytes := FileAccess.get_file_as_bytes(path)
 	if bytes.is_empty():
-		DirAccess.remove_absolute(path)
-		return true
+		var fa := FileAccess.open(path, FileAccess.READ)
+		if fa != null and fa.get_length() == 0:
+			fa.close()
+			DirAccess.remove_absolute(path)  # действительно пустой файл
+		return true  # не удалось прочитать — пропускаем, файл остаётся
 	if bytes.size() > MAX_BYTES:
 		bytes = "[... начало журнала обрезано ...]\n".to_utf8_buffer() + bytes.slice(bytes.size() - MAX_BYTES)
 	var remote := "logs/%s/%s" % [device, fname]
@@ -156,10 +163,15 @@ func _send_file(fname: String) -> bool:
 	var r: Array = await _req(HTTPClient.METHOD_PUT, "/repos/%s/contents/%s" % [_repo, remote], body)
 	var code := int(r[0])
 	# 201 — создан; 422 «sha wasn't supplied» — такой файл уже лежит в ветке (прошлая отправка прервалась)
-	if code == 201 or code == 200 or code == 422:
+	var msg := ""
+	if r[1] is Dictionary:
+		msg = str((r[1] as Dictionary).get("message", "")).to_lower()
+	var exists := code == 422 and (msg.contains("sha") or msg.contains("already exists"))
+	if code == 201 or code == 200 or exists:
 		DirAccess.rename_absolute(path, path.get_basename() + ".sent")
 		return true
-	status = "отправка: код %d" % code
+	if code != 0:
+		status = "отправка: код %d %s" % [code, msg.left(80)]
 	return false
 
 

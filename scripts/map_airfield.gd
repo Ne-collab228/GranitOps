@@ -1514,6 +1514,8 @@ func _build_rocks() -> void:
 		if bad:
 			continue
 		var s := rng.randf_range(0.35, 1.0) if rng.randf() < 0.6 else rng.randf_range(1.2, 2.8)
+		if not road_clear(x, z, s * 0.8):
+			continue
 		var rmesh: ArrayMesh = rocks[rng.randi() % 3]
 		var rpos := Vector3(x, ground(x, z) + s * 0.12, z)
 		var rrot := Vector3(rng.randf_range(-0.3, 0.3), rng.randf() * TAU, rng.randf_range(-0.3, 0.3))

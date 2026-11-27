@@ -82,7 +82,7 @@ func _ready() -> void:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		Settings.data.fps_cap = 0
 		Engine.max_fps = 0
-	if Game.autostart or "--play" in args or "--test" in args or "--touchtest" in args or Game.test_mode() or "--leaktest" in args or "--vehtest" in args:
+	if Game.autostart or "--play" in args or "--test" in args or "--touchtest" in args or Game.test_mode() or "--leaktest" in args or "--vehtest" in args or "--roadcheck" in args:
 		Game.autostart = false
 		start_mission()
 		if "--test" in args:
@@ -100,6 +100,8 @@ func _ready() -> void:
 			_bench()
 		elif "--vehtest" in args:
 			_vehtest()
+		elif "--roadcheck" in args:
+			await _roadcheck()
 	else:
 		await freeze_3d(true)
 		menu.show_panel("main")
@@ -1008,6 +1010,7 @@ func _vehtest() -> void:
 	var start := {}
 	for v in ais:
 		start[v] = v.global_position
+		v.odo = 0.0
 	var maxfly := 0.0
 	for i in 6:
 		await _phys_secs(10.0)
@@ -1019,7 +1022,7 @@ func _vehtest() -> void:
 			for v in ais:
 				print("VEH ИИ(вдали) ", v.ai_debug())
 	for v in ais:
-		print("VEH ИИ ", v.vid, " проехал ", snappedf(v.global_position.distance_to(start[v]), 0.1), " м, кин=", v._kin, " состояние=", v.ai_state)
+		print("VEH ИИ ", v.vid, " проехал ", snappedf(v.global_position.distance_to(start[v]), 0.1), " м (по прямой), пробег ", snappedf(v.odo, 1.0), " м, кин=", v._kin, " состояние=", v.ai_state)
 	print("VEH ИИ макс. высота над землёй (кинематика): ", snappedf(maxfly, 0.01))
 	# --- ближайший патруль вблизи (физика): игрок стоит в стороне от дороги
 	var near: Vehicle = null
@@ -1332,3 +1335,40 @@ func _shadow_dump(cam: Camera3D) -> void:
 	keys.sort_custom(func(a, b): return groups[a][1] > groups[b][1])
 	for k in keys.slice(0, 20):
 		print("  %-60s узлов=%4d поверхн=%4d" % [k, groups[k][0], groups[k][1]])
+
+
+# ------------------------------------------------------------------ проверка проходимости дорог (--roadcheck)
+## Идёт вдоль каждой дороги с шагом 3 м и ставит коробку размером с машину (3.2 x 1 x 4 м, на 0.8 м над землёй; рельеф, границу и машины не считает):
+## печатает, что с ней пересекается (слои мира и забора) — кусты, камни, стволы на полотне.
+func _roadcheck() -> void:
+	await _frames(20)
+	var space := level.get_world_3d().direct_space_state
+	var box := BoxShape3D.new()
+	box.size = Vector3(3.2, 1.0, 4.0)
+	var bad := 0
+	for ri in level.roads.size():
+		var line: PackedVector2Array = level.roads[ri]
+		var nb := 0
+		for i in line.size() - 1:
+			var a := line[i]
+			var b := line[i + 1]
+			var dir := (b - a).normalized()
+			var t := 0.0
+			while t < a.distance_to(b):
+				var c := a + dir * t
+				t += 3.0
+				var gy := level.ground(c.x, c.y)
+				var q := PhysicsShapeQueryParameters3D.new()
+				q.shape = box
+				q.transform = Transform3D(Basis.looking_at(Vector3(dir.x, 0, dir.y), Vector3.UP), Vector3(c.x, gy + 1.3, c.y))
+				q.collision_mask = Game.L_WORLD | Game.L_FENCE
+				var hits := space.intersect_shape(q, 8).filter(func(h): return not (h.collider is VehicleBody3D) and String(h.collider.name) != "terrain" and String(h.collider.name) != "bounds")
+				if not hits.is_empty():
+					nb += 1
+					if nb <= 12:
+						var col: Object = hits[0].collider
+						print("ROADCHK дорога %d (%.0f, %.0f): %s %s surf=%s" % [ri, c.x, c.y, col.get_class(), col.name, str(col.get_meta("surf", "?"))])
+		bad += nb
+		print("ROADCHK дорога %d: препятствий на полотне %d" % [ri, nb])
+	print("ROADCHK всего: ", bad)
+	get_tree().quit()

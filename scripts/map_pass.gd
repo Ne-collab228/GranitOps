@@ -95,7 +95,7 @@ func _setup_noise() -> void:
 
 func _terrain_tex() -> Dictionary:
 	return {"a": "aerial_grass_rock", "b": "forrest_ground_01", "r": "rock_boulder_dry", "tint": Vector3(0.84, 0.9, 0.86),
-		"grass": Vector3(0.2, 0.3, 0.13), "grass_amt": 0.6, "strata": 1.0}
+		"grass": Vector3(0.2, 0.3, 0.13), "grass_amt": 0.6, "strata": 0.6, "rock_dark": 1.0}
 
 
 ## Холодный горный воздух: синеватая дымка, заметная перспектива, низкое солнце.

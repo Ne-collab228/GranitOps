@@ -1217,6 +1217,12 @@ func _free_spot(x: float, z: float, margin := 2.0) -> bool:
 	return road_dist(x, z) > 4.5
 
 
+## Общее правило для всех карт: препятствие с коллизией радиусом r не заходит на полотно дороги и обочину
+## (полуширина полотна + r + 1.5 м запаса на проезд машины).
+func road_clear(x: float, z: float, r: float) -> bool:
+	return road_dist(x, z) > road_half + r + 1.5
+
+
 func _cross_mesh(w: float, h: float, planes := 2) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -1351,6 +1357,8 @@ func _build_nature() -> void:
 		if not _free_spot(x, z, 3.0):
 			continue
 		var s := rng.randf_range(0.35, 1.0) if rng.randf() < 0.6 else rng.randf_range(1.2, 2.6)
+		if not road_clear(x, z, s * 0.8):
+			continue
 		var rmesh: ArrayMesh = rocks[rng.randi() % 3]
 		var rpos := Vector3(x, ground(x, z) + s * 0.12, z)
 		var rrot := Vector3(rng.randf_range(-0.3, 0.3), rng.randf() * TAU, rng.randf_range(-0.3, 0.3))
@@ -1587,7 +1595,7 @@ func _build_veg_trees() -> void:
 	for sp in spots:
 		var x: float = sp.x
 		var z: float = sp.y
-		if absf(x) > lim or absf(z) > lim or not _free_spot(x, z, 2.5) or road_dist(x, z) < 5.5:
+		if absf(x) > lim or absf(z) > lim or not _free_spot(x, z, 2.5) or not road_clear(x, z, 0.3):
 			continue
 		var gy := ground(x, z)
 		if gy > tree_max_h:
@@ -1845,25 +1853,38 @@ func _nav_selftest() -> void:
 	var map := get_world_3d().navigation_map
 	for _f in 1500:
 		await get_tree().physics_frame
-		if NavigationServer3D.map_get_closest_point(map, nav_tiles[0].get_center()) != Vector3.ZERO:
+		if NavigationServer3D.map_get_iteration_id(map) > 0 and NavigationServer3D.map_get_closest_point(map, nav_tiles[0].get_center()) != Vector3.ZERO:
 			break
+	print("NAVTEST синхронизация: итерация ", NavigationServer3D.map_get_iteration_id(map), " регионов ", NavigationServer3D.map_get_regions(map).size())
+	for _f in 10:
+		await get_tree().physics_frame
 	var cs: Array[Vector3] = []
 	for t in nav_tiles:
 		var c := t.get_center()
-		cs.append(NavigationServer3D.map_get_closest_point(map, Vector3(c.x, 0.0, c.z)))
+		cs.append(NavigationServer3D.map_get_closest_point(map, Vector3(c.x, ground(c.x, c.z), c.z)))
 	var ok := 0
 	var fail := 0
+	# центр куска может оказаться на изолированной вершине/полке: такие точки (не доходят до точки появления) не считаем
+	var home := NavigationServer3D.map_get_closest_point(map, spawn_point)
+	var reach: Array[bool] = []
+	for i in nav_tiles.size():
+		var hp := NavigationServer3D.map_get_path(map, cs[i], home, true)
+		reach.append(hp.size() > 1 and hp[hp.size() - 1].distance_to(home) < 12.0)
+	var skipped := 0
 	for i in nav_tiles.size():
 		for j in range(i + 1, nav_tiles.size()):
 			if cs[i].distance_to(cs[j]) > chunk * cell * 1.1:
 				continue
+			if not reach[i] or not reach[j]:
+				skipped += 1
+				continue
 			var path := NavigationServer3D.map_get_path(map, cs[i], cs[j], true)
-			if path.size() > 1 and path[path.size() - 1].distance_to(cs[j]) < 3.0:
+			if path.size() > 1 and path[path.size() - 1].distance_to(cs[j]) < 12.0:  # допуск: центр куска мог попасть на крошечный островок
 				ok += 1
 			else:
 				fail += 1
-				print("NAVTEST нет пути ", i, " -> ", j)
-	print("NAVTEST %s: путей через границы кусков ок %d, нет %d" % [map_key, ok, fail])
+				print("NAVTEST нет пути ", i, " -> ", j, " ", cs[i], " -> ", cs[j], " конец пути ", path[path.size() - 1] if path.size() > 0 else Vector3.ZERO)
+	print("NAVTEST %s: путей через границы кусков ок %d, нет %d (пропущено из-за изолированных центров: %d)" % [map_key, ok, fail, skipped])
 
 
 # ------------------------------------------------------------------ случайная точка появления

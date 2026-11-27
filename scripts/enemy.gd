@@ -509,6 +509,7 @@ func _physics_process(delta: float) -> void:
 	think_t -= delta
 	if think_t <= 0.0:
 		var far: bool = state != St.COMBAT and global_position.distance_to(p.global_position) > 170.0
+		_far = state != St.COMBAT and (far or global_position.distance_squared_to(p.global_position) > 22500.0)
 		var interval := 0.5 if far else 0.18
 		think_t = interval
 		_perceive(interval)
@@ -517,6 +518,11 @@ func _physics_process(delta: float) -> void:
 	react_t = maxf(0.0, react_t - delta)
 	if state == St.COMBAT:
 		_fire_logic(delta)
+	elif _far and path.is_empty() and settle <= 0 and is_on_floor() and absf(velocity.x) + absf(velocity.z) < 0.02:
+		# дальний бот стоит на месте (не в тревоге): без физики движения, только поворот
+		yaw = lerp_angle(yaw, target_yaw, minf(1.0, delta * 7.0))
+		pivot.rotation.y = yaw
+		return
 	_move(delta, p)
 
 
@@ -648,6 +654,13 @@ func _process(delta: float) -> void:
 				set_process(false)
 				set_physics_process(false)
 		return
+	if _far and state != St.COMBAT:
+		# дальше 150 м, не в тревоге: визуальная часть раз в 3 кадра (накопленный dt)
+		_far_acc += delta
+		if (Engine.get_process_frames() + _pose_phase) % 3 != 0:
+			return
+		delta = _far_acc
+		_far_acc = 0.0
 	mark_t = maxf(0.0, mark_t - delta)
 	crouch = move_toward(crouch, 1.0 if want_crouch else 0.0, delta * 4.5)
 	var cap := shape.shape as CapsuleShape3D
@@ -674,6 +687,8 @@ func _process(delta: float) -> void:
 
 
 var _pose_acc := 0.0
+var _far := false  # дальше 150 м и не в бою: прореженная обработка
+var _far_acc := 0.0
 var _pose_phase := randi() % 4
 
 
