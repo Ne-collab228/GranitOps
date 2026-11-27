@@ -53,6 +53,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await level.build("--bake" in args)
 	if "--bake" in args:
+		level.bake_map_image()
 		get_tree().quit()
 		return
 	Game.fx = Fx.new()

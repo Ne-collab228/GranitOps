@@ -1670,6 +1670,96 @@ func _place_vehicle(parent: Node, id: String, color: int, x: float, z: float, ya
 	return null
 
 
+# ------------------------------------------------------------------ картинка карты (мини-карта и полная карта)
+const MAP_TEX := 768
+
+
+## Полуширина области, которую охватывает картинка карты (север вверху, центр — начало координат).
+func map_half() -> float:
+	return play_half + 16.0
+
+
+static func map_tex_path(key: String) -> String:
+	return "res://assets/maps/%s_map.res" % key
+
+
+## Запекает картинку карты в assets/maps/<ключ>_map.res: рельеф с затенением, дороги/дворы, коробки коллизий построек.
+## Работает для любой карты-наследника (ground(), _vertex_color(), roads, коллизии из дерева сцены).
+## Вызывается из режима --bake после build().
+func bake_map_image() -> void:
+	var t0 := Time.get_ticks_msec()
+	var T := MAP_TEX
+	var half := map_half()
+	var step := half * 2.0 / T
+	var W := T + 2
+	var hs := PackedFloat32Array()
+	hs.resize(W * W)
+	var hmin := INF
+	var hmax := -INF
+	for j in W:
+		for i in W:
+			var h := ground((i - 0.5) * step - half, (j - 0.5) * step - half)
+			hs[j * W + i] = h
+			hmin = minf(hmin, h)
+			hmax = maxf(hmax, h)
+	var img := Image.create(T, T, false, Image.FORMAT_RGB8)
+	var L := sun_dir.normalized()
+	var low := Color(0.40, 0.44, 0.29)
+	var mid := Color(0.58, 0.54, 0.38)
+	var high := Color(0.70, 0.67, 0.58)
+	var rock := Color(0.50, 0.48, 0.45)
+	var road_c := Color(0.80, 0.76, 0.64)
+	for j in T:
+		for i in T:
+			var k := (j + 1) * W + (i + 1)
+			var dx := (hs[k + 1] - hs[k - 1]) / (2.0 * step)
+			var dz := (hs[k + W] - hs[k - W]) / (2.0 * step)
+			var nrm := Vector3(-dx, 1.0, -dz).normalized()
+			var shade := clampf(0.62 + (nrm.dot(L) - L.y) * 1.7, 0.25, 1.25)
+			var tn := clampf((hs[k] - hmin) / maxf(hmax - hmin, 1.0), 0.0, 1.0)
+			var col := low.lerp(mid, smoothstep(0.0, 0.5, tn)).lerp(high, smoothstep(0.5, 1.0, tn))
+			col = col.lerp(rock, smoothstep(0.86, 0.66, nrm.y))
+			var wx := (i + 0.5) * step - half
+			var wz := (j + 0.5) * step - half
+			var vc := _vertex_color(wx, wz, nrm, road_dist(wx, wz))
+			col = col.lerp(road_c, clampf(vc.b, 0.0, 1.0) * 0.85)
+			img.set_pixel(i, j, Color(col.r * shade, col.g * shade, col.b * shade))
+	# постройки и укрытия: коробки коллизий выше человеческого роста
+	var boxes := 0
+	var wall_c := Color(0.22, 0.2, 0.19)
+	var stack: Array = [self]
+	while not stack.is_empty():
+		var nd: Node = stack.pop_back()
+		for ch in nd.get_children():
+			stack.append(ch)
+		if not (nd is StaticBody3D) or (nd as StaticBody3D).collision_layer & Game.L_WORLD == 0:
+			continue
+		for cs in nd.get_children():
+			if not (cs is CollisionShape3D) or not ((cs as CollisionShape3D).shape is BoxShape3D):
+				continue
+			var xf: Transform3D = (cs as CollisionShape3D).global_transform
+			var bs: Vector3 = ((cs as CollisionShape3D).shape as BoxShape3D).size
+			var bb := xf * AABB(-bs * 0.5, bs)
+			if bb.size.y < 2.4 or bb.end.y < ground(xf.origin.x, xf.origin.z) + 2.2:
+				continue
+			boxes += 1
+			var inv := xf.affine_inverse()
+			var i0 := clampi(int(floor((bb.position.x + half) / step)), 0, T - 1)
+			var i1 := clampi(int(floor((bb.end.x + half) / step)), 0, T - 1)
+			var j0 := clampi(int(floor((bb.position.z + half) / step)), 0, T - 1)
+			var j1 := clampi(int(floor((bb.end.z + half) / step)), 0, T - 1)
+			for jj in range(j0, j1 + 1):
+				for ii in range(i0, i1 + 1):
+					var lp: Vector3 = inv * Vector3((ii + 0.5) * step - half, xf.origin.y, (jj + 0.5) * step - half)
+					if absf(lp.x) <= bs.x * 0.5 + step * 0.45 and absf(lp.z) <= bs.z * 0.5 + step * 0.45:
+						img.set_pixel(ii, jj, wall_c)
+	img.generate_mipmaps()
+	var tex := ImageTexture.create_from_image(img)
+	var err := ResourceSaver.save(tex, map_tex_path(map_key))
+	print("карта %s: %dx%d, коробок построек %d, сохранение=%d, %d мс" % [map_key, T, T, boxes, err, Time.get_ticks_msec() - t0])
+	img.save_png("user://map_%s.png" % map_key)
+
+
 # ------------------------------------------------------------------ тепловизор
 var _thermal_saved := {}
 

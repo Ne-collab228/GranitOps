@@ -72,6 +72,7 @@ var canvas: Canvas
 var scope_rect: ColorRect
 var vignette: ColorRect
 var touch: TouchControls
+var map: MapView
 var font: Font
 
 var hit_t := 0.0
@@ -99,6 +100,11 @@ func _ready() -> void:
 	# атлас интерфейса уменьшается в разы (кружок 120 px → точка 3 px) — нужны мипмапы
 	canvas.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	add_child(canvas)
+	map = MapView.new()
+	map.hud = self
+	add_child(map)
+	if "--mapshot" in OS.get_cmdline_user_args():
+		_mapshot()
 	if Settings.touch_ui:
 		touch = TouchControls.new()
 		touch.hud = self
@@ -172,7 +178,9 @@ func _process(delta: float) -> void:
 			var bob := Vector2(sin(w.time * 7.0), absf(cos(w.time * 7.0))) * clampf(vel / 5.0, 0.0, 1.0) * 0.03
 			sm.set_shader_parameter("offset", Vector2(w.sway.x * 4.0, -w.sway.y * 4.0) + bob + Vector2(0.0, settle * 0.3))
 	canvas.queue_redraw()
+	map.queue_redraw()
 	if touch:
+		touch.visible = not map.open
 		touch.queue_redraw()
 
 
@@ -185,6 +193,116 @@ func text(c: Control, pos: Vector2, s: String, size: int, col: Color, align := H
 
 
 var ub := UiBatch.new()
+
+
+## Отладка (-- --play --mapshot [--touch]): снимки интерфейса навигации и замер вызовов отрисовки.
+func _mapshot() -> void:
+	for i in 120:
+		await get_tree().process_frame
+	var p: Player = Game.player
+	var key: String = Game.level.map_key
+	var draws := func() -> float:
+		var d := 0.0
+		for i in 20:
+			await get_tree().process_frame
+			d += Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
+		return d / 20.0
+	var d_on: float = await draws.call()
+	map.visible = false
+	var d_off: float = await draws.call()
+	map.visible = true
+	await get_tree().process_frame
+	await get_tree().process_frame
+	print("MAPSHOT draw с картой/списком: %.1f, без карты: %.1f" % [d_on, d_off])
+	get_viewport().get_texture().get_image().save_png("user://test_map_%s_hud.png" % key)
+	p.yaw += 2.2
+	for i in 10:
+		await get_tree().process_frame
+	get_viewport().get_texture().get_image().save_png("user://test_map_%s_edge.png" % key)
+	Game.mission.objectives[0].done = true
+	map.toggle()
+	for i in 10:
+		await get_tree().process_frame
+	print("MAPSHOT draw полная карта: %.1f" % await draws.call())
+	get_viewport().get_texture().get_image().save_png("user://test_map_%s_full.png" % key)
+	get_tree().quit()
+
+
+## Список задач слева под мини-картой (не доходит до сенсорных кнопок: они ниже 350 px).
+func _goal_list(c: Control, p: Player, mis: Mission) -> void:
+	var y := MapView.MINI_POS.y + MapView.MINI + 26.0
+	text(c, Vector2(16, y), "ЗАДАЧИ", 13, Color(0.93, 0.86, 0.68))
+	for g in mis.goals():
+		y += 21.0
+		var done: bool = g.done
+		var locked: bool = g.locked
+		var col := Color(0.55, 0.9, 0.5, 0.9) if done else (Color(1, 1, 1, 0.4) if locked else Color(1, 1, 1, 0.95))
+		var bc := Color(0.45, 0.8, 0.4, 0.8) if done else (Color(0.5, 0.5, 0.5, 0.6) if locked else Color(1.0, 0.8, 0.25, 0.95))
+		ub.draw_circle(Vector2(24, y - 5.0), 8.5, bc)
+		text(c, Vector2(4, y - 0.5), MapView.label_of(g), 11, Color(1, 1, 1, 0.95), HORIZONTAL_ALIGNMENT_CENTER, 40.0)
+		var t: String = g.title
+		if t.length() > 30:
+			t = t.substr(0, 28) + ".."
+		text(c, Vector2(38, y), t, 13, col)
+		if not done and not locked:
+			var d: float = Vector2((g.pos as Vector3).x - p.global_position.x, (g.pos as Vector3).z - p.global_position.z).length()
+			text(c, Vector2(198, y), "%d м" % int(d), 12, Color(1.0, 0.8, 0.25), HORIZONTAL_ALIGNMENT_RIGHT, 100.0)
+		elif done:
+			text(c, Vector2(198, y), "готово", 12, col, HORIZONTAL_ALIGNMENT_RIGHT, 100.0)
+
+
+## Номера и расстояния над целями; цель вне экрана — значок у края с цепочкой точек-стрелкой. Выполненные не рисуются.
+func _goal_marks(c: Control, p: Player, mis: Mission) -> void:
+	if p.dead:
+		return
+	var cam := p.cam
+	var sz := c.size
+	var ctr := sz * 0.5
+	var k := sz / Vector2(c.get_viewport_rect().size)
+	var inv := cam.global_transform.affine_inverse()
+	var placed: Array = []
+	for g in mis.goals():
+		if g.done or g.locked:
+			continue
+		var wp: Vector3 = (g.pos as Vector3) + Vector3(0, 2.5, 0)
+		var dist: float = cam.global_position.distance_to(g.pos)
+		var sp: Vector2 = cam.unproject_position(wp) * k
+		var inside := not cam.is_position_behind(wp) and sp.is_finite() and sp.x > 40.0 and sp.x < sz.x - 40.0 and sp.y > 90.0 and sp.y < sz.y - 70.0
+		var col := Color(0.4, 0.9, 0.45) if g.lz else Color(1.0, 0.8, 0.25)
+		var at := sp
+		if not inside:
+			var lp: Vector3 = inv * wp
+			var dir := Vector2(lp.x, -lp.y)
+			if dir.length() < 0.001:
+				dir = Vector2(0, 1)
+			dir = dir.normalized()
+			if absf(lp.x) < 0.001 and lp.z > 0.0 and absf(lp.y) < 0.001:
+				dir = Vector2(0, 1)
+			var sx := (ctr.x - 50.0) / maxf(absf(dir.x), 0.0001)
+			var sy := (ctr.y - 90.0) / maxf(absf(dir.y), 0.0001)
+			at = ctr + dir * minf(sx, sy)
+			if at.x < 330.0 and at.y < 350.0:
+				at.y = 350.0
+			# значки у края не налезают друг на друга
+			var base_at := at
+			for off in [0.0, 46.0, -46.0, 92.0, -92.0, 138.0, -138.0]:
+				var cand := base_at + Vector2(0, off)
+				if cand.y < 100.0 or cand.y > sz.y - 90.0:
+					continue
+				var clash := false
+				for q in placed:
+					if (q as Vector2).distance_to(cand) < 42.0:
+						clash = true
+				if not clash:
+					at = cand
+					break
+			placed.append(at)
+			for i in 2:
+				ub.draw_circle(at + dir * (22.0 + i * 9.0), 4.0 - i * 1.4, Color(col, 0.9))
+		ub.draw_circle(at, 14.0, Color(0, 0, 0, 0.55))
+		ub.draw_arc(at, 14.0, 0.0, TAU, 24, col, 2.0)
+		text(c, at + Vector2(-20, 6), MapView.label_of(g), 16, Color(1, 1, 1, 0.97), HORIZONTAL_ALIGNMENT_CENTER, 40.0)
+		text(c, at + Vector2(-40, 31), "%d м" % int(dist), 12, col, HORIZONTAL_ALIGNMENT_CENTER, 80.0)
 
 
 func draw_hud(c: Control) -> void:
@@ -345,14 +463,12 @@ func _draw_hud(c: Control, p: Player) -> void:
 	# --- задачи и метки целей
 	var mis: Mission = Game.mission
 	if mis:
-		var y := 30.0
-		text(c, Vector2(22, y), "ЗАДАЧИ", 14, sand)
+		_goal_list(c, p, mis)
+		if not map.open:
+			_goal_marks(c, p, mis)
 		for o in mis.objectives:
-			y += 22.0
 			var done: bool = o.done
 			var locked: bool = o.get("locked", false)
-			var col3 := Color(0.55, 0.9, 0.5, 0.9) if done else (Color(1, 1, 1, 0.4) if locked else white)
-			text(c, Vector2(22, y), ("[+] " if done else "[  ] ") + String(o.title), 15, col3)
 			if not done and not locked:
 				var to: Vector3 = (o.pos as Vector3) - p.global_position
 				var ob := rad_to_deg(atan2(to.x, -to.z))
