@@ -1,0 +1,6 @@
+Page: https://opengameart.org/content/uaz-452-utility-van-lowpoly
+Download: https://opengameart.org/sites/default/files/uaz-452.zip
+Author: Mehozavr
+License: CC0 (as labelled 'License(s): CC0' on OpenGameArt page)
+Note: texture contains a fictional-looking licence plate text.
+Date: 2026-11-25

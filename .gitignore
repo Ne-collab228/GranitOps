@@ -1,0 +1,6 @@
+.godot/
+build/
+tools/_veg_bake/
+tools/_veg_src/
+release.keystore
+*.tmp

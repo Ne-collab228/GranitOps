@@ -1,0 +1,122 @@
+Растительность «Операции Гранит» (assets/veg/*) запечена из ассетов под лицензией CC0 1.0 (общественное достояние).
+Сборка: tools/veg_prep.py -> tools/bake_veg.gd -> tools/veg_pack.py. Кора стволов — assets/tex/bark_brown_02 (Poly Haven, CC0).
+
+== jacaranda_tree — деревья broadleaf (лиственное) и dead (сухое, без листвы)
+Page: https://polyhaven.com/a/jacaranda_tree
+Direct (glTF 1k): https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/jacaranda_tree/jacaranda_tree_1k.gltf  (+ files listed in the glTF, from dl.polyhaven.org)
+Author(s): Rob Tuytel (guidance), Rico Cilliers (All)
+License: CC0 (Poly Haven: "All assets are CC0", https://polyhaven.com/license)
+Polycount per API: 312356
+Downloaded: 2026-11-25
+
+== searsia_burchellii — дерево searsia
+Page: https://polyhaven.com/a/searsia_burchellii
+Direct (glTF 1k): https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/searsia_burchellii/searsia_burchellii_1k.gltf  (+ files listed in the glTF, from dl.polyhaven.org)
+Author(s): James Ray Cock (modeling), Jenelle van Heerden (photography)
+License: CC0 (Poly Haven: "All assets are CC0", https://polyhaven.com/license)
+Polycount per API: 1427042
+Downloaded: 2026-11-25
+
+== fir_sapling_medium — дерево fir (ель)
+Page: https://polyhaven.com/a/fir_sapling_medium
+Direct (glTF 1k): https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/fir_sapling_medium/fir_sapling_medium_1k.gltf  (+ files listed in the glTF, from dl.polyhaven.org)
+Author(s): Rob Tuytel (photography), Rico Cilliers (modeling)
+License: CC0 (Poly Haven: "All assets are CC0", https://polyhaven.com/license)
+Polycount per API: 2308249
+Downloaded: 2026-11-25
+
+== searsia_lucida — куст lucida
+Page: https://polyhaven.com/a/searsia_lucida
+Direct (glTF 2k): https://dl.polyhaven.org/file/ph-assets/Models/gltf/2k/searsia_lucida/searsia_lucida_2k.gltf  (+ files listed in the glTF, from dl.polyhaven.org)
+Author(s): James Ray Cock (modeling), Jenelle van Heerden (Photography)
+License: CC0 (Poly Haven: "All assets are CC0", https://polyhaven.com/license)
+Polycount per API: 841648
+Downloaded: 2026-11-25
+
+== shrub_02 — куст shrub_02
+Page: https://polyhaven.com/a/shrub_02
+Direct (glTF 2k): https://dl.polyhaven.org/file/ph-assets/Models/gltf/2k/shrub_02/shrub_02_2k.gltf  (+ files listed in the glTF, from dl.polyhaven.org)
+Author(s): Rico Cilliers (All)
+License: CC0 (Poly Haven: "All assets are CC0", https://polyhaven.com/license)
+Polycount per API: 52317
+Downloaded: 2026-11-25
+
+== shrub_03 — куст shrub_03
+Page: https://polyhaven.com/a/shrub_03
+Direct (glTF 2k): https://dl.polyhaven.org/file/ph-assets/Models/gltf/2k/shrub_03/shrub_03_2k.gltf  (+ files listed in the glTF, from dl.polyhaven.org)
+Author(s): Rico Cilliers (All)
+License: CC0 (Poly Haven: "All assets are CC0", https://polyhaven.com/license)
+Polycount per API: 16955
+Downloaded: 2026-11-25
+
+== wild_rooibos_bush — куст rooibos
+Page: https://polyhaven.com/a/wild_rooibos_bush
+Direct (glTF 2k): https://dl.polyhaven.org/file/ph-assets/Models/gltf/2k/wild_rooibos_bush/wild_rooibos_bush_2k.gltf  (+ files listed in the glTF, from dl.polyhaven.org)
+Author(s): James Ray Cock (modeling), Jenelle van Heerden (photography)
+License: CC0 (Poly Haven: "All assets are CC0", https://polyhaven.com/license)
+Polycount per API: 76521
+Downloaded: 2026-11-25
+
+== fern_02 — куст fern
+Page: https://polyhaven.com/a/fern_02
+Direct (glTF 2k): https://dl.polyhaven.org/file/ph-assets/Models/gltf/2k/fern_02/fern_02_2k.gltf  (+ files listed in the glTF, from dl.polyhaven.org)
+Author(s): Rob Tuytel (scanning), Rico Cilliers (modeling)
+License: CC0 (Poly Haven: "All assets are CC0", https://polyhaven.com/license)
+Polycount per API: 6232
+Downloaded: 2026-11-25
+
+== grass_medium_02 — трава, кадр clumps
+Page: https://polyhaven.com/a/grass_medium_02
+Direct (glTF 2k): https://dl.polyhaven.org/file/ph-assets/Models/gltf/2k/grass_medium_02/grass_medium_02_2k.gltf  (+ files listed in the glTF, from dl.polyhaven.org)
+Author(s): Rico Cilliers (All)
+License: CC0 (Poly Haven: "All assets are CC0", https://polyhaven.com/license)
+Polycount per API: 1043926
+Downloaded: 2026-11-25
+
+== flower_ursinia — трава, кадр flowers
+Page: https://polyhaven.com/a/flower_ursinia
+Direct (glTF 2k): https://dl.polyhaven.org/file/ph-assets/Models/gltf/2k/flower_ursinia/flower_ursinia_2k.gltf  (+ files listed in the glTF, from dl.polyhaven.org)
+Author(s): Jenelle van Heerden (photography), Rico Cilliers (modeling)
+License: CC0 (Poly Haven: "All assets are CC0", https://polyhaven.com/license)
+Polycount per API: 44360
+Downloaded: 2026-11-25
+
+== acg_Foliage001 — травинки для пучков травы
+Page: https://ambientcg.com/view?id=Foliage001
+Direct (2K-PNG zip): https://ambientcg.com/get?file=Foliage001_2K-PNG.zip
+Author: ambientCG.com (Lennart Demes)
+License: Creative Commons CC0 1.0 Universal (ambientCG: "All assets on ambientCG are released under the CC0 1.0 Universal License")
+Type: Atlas (alpha-cut foliage atlas texture set, no mesh)
+Downloaded: 2026-11-25
+
+== acg_Foliage002 — метёлки для пучков травы
+Page: https://ambientcg.com/view?id=Foliage002
+Direct (2K-PNG zip): https://ambientcg.com/get?file=Foliage002_2K-PNG.zip
+Author: ambientCG.com (Lennart Demes)
+License: Creative Commons CC0 1.0 Universal (ambientCG: "All assets on ambientCG are released under the CC0 1.0 Universal License")
+Type: Atlas (alpha-cut foliage atlas texture set, no mesh)
+Downloaded: 2026-11-25
+
+== acg_Foliage004 — травинки для пучков травы
+Page: https://ambientcg.com/view?id=Foliage004
+Direct (2K-PNG zip): https://ambientcg.com/get?file=Foliage004_2K-PNG.zip
+Author: ambientCG.com (Lennart Demes)
+License: Creative Commons CC0 1.0 Universal (ambientCG: "All assets on ambientCG are released under the CC0 1.0 Universal License")
+Type: Atlas (alpha-cut foliage atlas texture set, no mesh)
+Downloaded: 2026-11-25
+
+== acg_Foliage006 — травинки для пучков травы
+Page: https://ambientcg.com/view?id=Foliage006
+Direct (2K-PNG zip): https://ambientcg.com/get?file=Foliage006_2K-PNG.zip
+Author: ambientCG.com (Lennart Demes)
+License: Creative Commons CC0 1.0 Universal (ambientCG: "All assets on ambientCG are released under the CC0 1.0 Universal License")
+Type: Atlas (alpha-cut foliage atlas texture set, no mesh)
+Downloaded: 2026-11-25
+
+== acg_Foliage007 — травинки для пучков травы
+Page: https://ambientcg.com/view?id=Foliage007
+Direct (2K-PNG zip): https://ambientcg.com/get?file=Foliage007_2K-PNG.zip
+Author: ambientCG.com (Lennart Demes)
+License: Creative Commons CC0 1.0 Universal (ambientCG: "All assets on ambientCG are released under the CC0 1.0 Universal License")
+Type: Atlas (alpha-cut foliage atlas texture set, no mesh)
+Downloaded: 2026-11-25
