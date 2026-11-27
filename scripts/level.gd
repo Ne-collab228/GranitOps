@@ -1677,6 +1677,8 @@ func _setup_navigation(bake: bool) -> void:
 			region.navigation_mesh = load("%s/%d.res" % [dir, i])
 			add_child(region)
 		nav_ready = true
+		if "--navtest" in OS.get_cmdline_user_args():
+			_nav_selftest()
 		return
 	if not bake:
 		push_warning("нет навигации %s — пеку на лету (запустите -- --bake)" % map_key)
@@ -1693,11 +1695,7 @@ func _setup_navigation(bake: bool) -> void:
 		nm.border_size = NAV_BORDER
 		NavigationServer3D.bake_from_source_geometry_data(nm, src)
 		nm.filter_baking_aabb = AABB()
-		# вершины на сетку: края соседних кусков совпадают точно
-		var verts := nm.vertices
-		for k in verts.size():
-			verts[k] = verts[k].snappedf(0.025)
-		nm.vertices = verts
+		_nav_clean(nm)
 		polys += nm.get_polygon_count()
 		if bake:
 			ResourceSaver.save(nm, "%s/%d.res" % [dir, i], ResourceSaver.FLAG_COMPRESS)
@@ -1709,6 +1707,134 @@ func _setup_navigation(bake: bool) -> void:
 			await get_tree().process_frame
 	print("navmesh %s: %d кусков, %d полигонов" % [map_key, nav_tiles.size(), polys])
 	nav_ready = true
+	if "--navtest" in OS.get_cmdline_user_args():
+		_nav_selftest()
+
+
+## Вершины на сетку (края соседних кусков совпадают точно) и чистка вырожденных полигонов:
+## после привязки к сетке Recast-полигоны схлопываются в «шипы» (ребро a-b-a), и сервер навигации
+## ругается «More than 2 edges tried to occupy the same map rasterization space».
+func _nav_clean(nm: NavigationMesh) -> void:
+	var src := nm.vertices
+	var verts := PackedVector3Array()
+	var index := {}
+	var remap := PackedInt32Array()
+	remap.resize(src.size())
+	for k in src.size():
+		var v: Vector3 = src[k].snappedf(0.025)
+		var key := Vector3i((v / 0.025).round())
+		if not index.has(key):
+			index[key] = verts.size()
+			verts.append(v)
+		remap[k] = index[key]
+	var polys: Array[PackedInt32Array] = []
+	for p in nm.get_polygon_count():
+		var ids: Array[int] = []
+		for i in nm.get_polygon(p):
+			var id: int = remap[i]
+			if ids.is_empty() or ids[ids.size() - 1] != id:
+				ids.append(id)
+		if ids.size() > 1 and ids[0] == ids[ids.size() - 1]:
+			ids.pop_back()
+		# убрать шипы: вершина, у которой соседи совпадают
+		var changed := true
+		while changed and ids.size() >= 3:
+			changed = false
+			for k in ids.size():
+				if ids[(k + ids.size() - 1) % ids.size()] == ids[(k + 1) % ids.size()]:
+					ids.remove_at(k)
+					changed = true
+					break
+		if ids.size() < 3:
+			continue
+		var area := 0.0
+		for k in ids.size():
+			var a: Vector3 = verts[ids[k]]
+			var b: Vector3 = verts[ids[(k + 1) % ids.size()]]
+			area += a.x * b.z - b.x * a.z
+		if absf(area) < 0.01:
+			continue
+		polys.append(PackedInt32Array(ids))
+	_nav_drop_overlaps(verts, polys)
+	nm.clear()
+	nm.vertices = verts
+	for pl in polys:
+		nm.add_polygon(pl)
+
+
+## Перекрывающиеся полигоны (ребро занято больше чем двумя или двумя в одном направлении): из конфликтующих
+## убираем самый мелкий — остальные покрывают то же место, а сервер перестаёт сообщать об ошибках рёбер.
+func _nav_drop_overlaps(verts: PackedVector3Array, polys: Array[PackedInt32Array]) -> void:
+	for _pass in 4:
+		var use := {}
+		for pi in polys.size():
+			var pl := polys[pi]
+			for k in pl.size():
+				var a := pl[k]
+				var b := pl[(k + 1) % pl.size()]
+				var key := Vector2i(mini(a, b), maxi(a, b))
+				if not use.has(key):
+					use[key] = []
+				use[key].append([pi, a < b])
+		var drop := {}
+		for key in use:
+			var l: Array = use[key]
+			var bad := l.size() > 2
+			if l.size() == 2 and l[0][1] == l[1][1]:
+				bad = true
+			if not bad:
+				continue
+			var worst := -1
+			var worst_area := INF
+			for e in l:
+				if drop.has(e[0]):
+					worst = -2
+					break
+				var pl := polys[e[0]]
+				var area := 0.0
+				for k in pl.size():
+					var va := verts[pl[k]]
+					var vb := verts[pl[(k + 1) % pl.size()]]
+					area += va.x * vb.z - vb.x * va.z
+				area = absf(area)
+				if area < worst_area:
+					worst_area = area
+					worst = e[0]
+			if worst >= 0:
+				drop[worst] = true
+		if drop.is_empty():
+			return
+		var keep: Array[PackedInt32Array] = []
+		for pi in polys.size():
+			if not drop.has(pi):
+				keep.append(polys[pi])
+		polys.assign(keep)
+
+
+## `-- --navtest`: путь между центрами соседних кусков (через границу) — проверка, что куски сшиты.
+func _nav_selftest() -> void:
+	var map := get_world_3d().navigation_map
+	for _f in 1500:
+		await get_tree().physics_frame
+		if NavigationServer3D.map_get_closest_point(map, nav_tiles[0].get_center()) != Vector3.ZERO:
+			break
+	var cs: Array[Vector3] = []
+	for t in nav_tiles:
+		var c := t.get_center()
+		cs.append(NavigationServer3D.map_get_closest_point(map, Vector3(c.x, 0.0, c.z)))
+	var ok := 0
+	var fail := 0
+	for i in nav_tiles.size():
+		for j in range(i + 1, nav_tiles.size()):
+			if cs[i].distance_to(cs[j]) > chunk * cell * 1.1:
+				continue
+			var path := NavigationServer3D.map_get_path(map, cs[i], cs[j], true)
+			if path.size() > 1 and path[path.size() - 1].distance_to(cs[j]) < 3.0:
+				ok += 1
+			else:
+				fail += 1
+				print("NAVTEST нет пути ", i, " -> ", j)
+	print("NAVTEST %s: путей через границы кусков ок %d, нет %d" % [map_key, ok, fail])
 
 
 # ------------------------------------------------------------------ случайная точка появления
