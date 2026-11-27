@@ -274,6 +274,13 @@ func flush() -> void:
 	# обводки всех надписей, затем сами надписи: у MSDF-шрифта одна текстура — один вызов;
 	# у обычного каждый размер — своя текстура, поэтому группируем по размеру
 	var msdf := is_msdf(font)
+	if msdf and not _texts.is_empty() and not no_glyph_sort:
+		_flush_glyphs()
+		_quads.clear()
+		_lines.clear()
+		_prims.clear()
+		_texts.clear()
+		return
 	var order := _texts
 	if not msdf:
 		order = _texts.duplicate()
@@ -288,3 +295,64 @@ func flush() -> void:
 	_lines.clear()
 	_prims.clear()
 	_texts.clear()
+
+
+## MSDF-глифы лежат в кэше шрифта на нескольких страницах-текстурах (512 px: ~36 глифов, а кириллица списка задач,
+## латиница и цифры — около сотни). draw_string рисует глифы строки по порядку, и каждая смена страницы рвёт пакет:
+## список задач стоил ~40 вызовов отрисовки. Здесь строки раскладываются на глифы (TextLine, кэш) и выводятся
+## сгруппированными по странице: сначала все обводки, потом вся заливка — 2 вызова на страницу.
+static var no_glyph_sort := "--noglyphsort" in OS.get_cmdline_user_args()
+static var _lines_cache := {}
+
+
+static func _shaped(s: String, size: int, f: Font) -> TextLine:
+	var key := "%d|%s" % [size, s]
+	var tl: TextLine = _lines_cache.get(key)
+	if tl == null:
+		if _lines_cache.size() > 400:
+			_lines_cache.clear()
+		tl = TextLine.new()
+		tl.add_string(s, f, size)
+		_lines_cache[key] = tl
+	return tl
+
+
+func _flush_glyphs() -> void:
+	var ts := TextServerManager.get_primary_interface()
+	var ci := c.get_canvas_item()
+	var pages := {}  # страница (rid шрифта, индекс текстуры) -> [[rid, size, pos, glyph, color], ...]
+	var order: Array = []
+	for t in _texts:
+		var s: String = t[1]
+		var size: int = t[2]
+		var col: Color = t[3]
+		var align: int = t[4]
+		var width: float = t[5]
+		var tl := _shaped(s, size, font)
+		var pen := Vector2(t[0])
+		if width > 0.0 and align != HORIZONTAL_ALIGNMENT_LEFT:
+			var lw := tl.get_line_width()
+			pen.x += (width - lw) * (0.5 if align == HORIZONTAL_ALIGNMENT_CENTER else 1.0)
+		for g in ts.shaped_text_get_glyphs(tl.get_rid()):
+			var gi: int = g["index"]
+			var frid: RID = g["font_rid"]
+			var adv: float = g["advance"]
+			var rep: int = g.get("repeat", 1)
+			for r in rep:
+				if gi != 0 and frid.is_valid():
+					var fs: int = g["font_size"]
+					var page := ts.font_get_glyph_texture_idx(frid, Vector2i(fs, 0), gi)
+					var key := [frid, page]
+					if not pages.has(key):
+						pages[key] = []
+						order.append(key)
+					(pages[key] as Array).append([frid, fs, pen + (g["offset"] as Vector2), gi, col])
+				pen.x += adv
+	var ow := 8
+	for key in order:
+		for it in pages[key]:
+			var col2: Color = it[4]
+			ts.font_draw_glyph_outline(it[0], ci, it[1], ow, it[2], it[3], Color(0, 0, 0, 0.75 * col2.a))
+	for key in order:
+		for it in pages[key]:
+			ts.font_draw_glyph(it[0], ci, it[1], it[2], it[3], it[4])

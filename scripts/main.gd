@@ -63,6 +63,8 @@ func _ready() -> void:
 	world.add_child(Game.fx)
 	Game.ballistics = Ballistics.new()
 	world.add_child(Game.ballistics)
+	# дальние солдаты — общий MultiMesh на вид (вызовы отрисовки)
+	world.add_child(FarCrowd.new())
 	menu_cam = Camera3D.new()
 	menu_cam.far = 2600.0
 	menu_cam.fov = 60.0
@@ -652,6 +654,8 @@ func draw_dump(tag: String) -> void:
 	var cam := get_viewport().get_camera_3d()
 	if cam == null:
 		return
+	if "--shadowdump" in OS.get_cmdline_user_args():
+		_shadow_dump(cam)
 	var planes := cam.get_frustum()
 	var cp := cam.global_position
 	var groups := {}
@@ -699,6 +703,17 @@ func draw_dump(tag: String) -> void:
 				tris += cnt / 3 * inst
 		var psc: Script = gi.get_parent().get_script()
 		var key := String(gi.name).rstrip("0123456789_@").left(24) + " <" + (psc.resource_path.get_file() if psc else String(gi.get_parent().name).left(14)) + ">"
+		if "--drawdump2" in OS.get_cmdline_user_args():
+			# подробнее: текстура первого материала (чтобы различать безымянные узлы)
+			var m0: Material = gi.material_override
+			if m0 == null and mesh and mesh.get_surface_count() > 0:
+				m0 = mesh.surface_get_material(0)
+			var tx := ""
+			if m0 is BaseMaterial3D and (m0 as BaseMaterial3D).albedo_texture:
+				tx = (m0 as BaseMaterial3D).albedo_texture.resource_path.get_file().left(18)
+			elif m0 is ShaderMaterial:
+				tx = "shader"
+			key += " [" + tx + "]"
 		if not groups.has(key):
 			groups[key] = [0, 0, 0, gi.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF]
 		groups[key][0] += 1
@@ -715,7 +730,7 @@ func draw_dump(tag: String) -> void:
 		Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 		Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1000])
 	for k in keys.slice(0, 30):
-		print("  %-46s узлов=%4d draw=%4d tris=%6dk тень=%s" % [k, groups[k][0], groups[k][1], groups[k][2] / 1000, groups[k][3]])
+		print("  %-66s узлов=%4d draw=%4d tris=%6dk тень=%s" % [k, groups[k][0], groups[k][1], groups[k][2] / 1000, groups[k][3]])
 
 
 # ------------------------------------------------------------------ отладка: снимки оружия (--gunshots)
@@ -1134,6 +1149,14 @@ func _bench() -> void:
 	var lv: Array = level.bench_views()
 	if not lv.is_empty():
 		views = lv
+	# --only=3,11 — только эти точки (номера с 0), чтобы быстро перемерить худшие
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--only="):
+			var sel := []
+			for s in a.substr(7).split(","):
+				if s.is_valid_int() and int(s) < views.size():
+					sel.append(views[int(s)])
+			views = sel
 	var td := 0
 	var tp := 0
 	if "--atlasdump" in OS.get_cmdline_user_args():
@@ -1166,6 +1189,13 @@ func _bench() -> void:
 		level.sun.shadow_enabled = false
 	if "--nohud" in OS.get_cmdline_user_args():
 		hud.visible = false
+	for a in OS.get_cmdline_user_args():
+		# --hide=map,touch,canvas,vignette — скрыть части интерфейса (замер их цены)
+		if a.begins_with("--hide="):
+			for part in a.substr(7).split(","):
+				var nd = hud.get(part)
+				if nd is CanvasItem:
+					(nd as CanvasItem).visible = false
 	for v in views:
 		var at: Vector3 = v[1]
 		p.global_position = _test_hop(at)
@@ -1259,3 +1289,46 @@ func _leaktest() -> void:
 	p.t_fire = false
 	Blackbox.event("ТЕСТ ПАМЯТИ 2: конец")
 	hud.show_message("Тест памяти завершён. Сохраните отчёт в настройках", 8.0)
+
+
+## Грубая оценка проходов теней: тенеотбрасыватели, чья коробка ближе дальности теней к камере (без учёта
+## направления света и слоёв), по группам. Только для разработки (--drawdump --shadowdump).
+func _shadow_dump(cam: Camera3D) -> void:
+	var cp := cam.global_position
+	var sd: float = level.sun.directional_shadow_max_distance
+	var groups := {}
+	var stack: Array[Node] = [self]
+	var total := 0
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		for ch in n.get_children():
+			stack.append(ch)
+		if not (n is GeometryInstance3D) or not (n as GeometryInstance3D).is_visible_in_tree():
+			continue
+		var gi := n as GeometryInstance3D
+		if gi.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+			continue
+		var aabb: AABB = gi.global_transform * gi.get_aabb()
+		var c := aabb.get_center()
+		var dist := maxf(0.0, c.distance_to(cp) - aabb.size.length() * 0.5)
+		if dist > sd:
+			continue
+		if gi.visibility_range_end > 0.0 and c.distance_to(cp) > gi.visibility_range_end + gi.visibility_range_end_margin:
+			continue
+		var surf := 1
+		if gi is MeshInstance3D and (gi as MeshInstance3D).mesh:
+			surf = (gi as MeshInstance3D).mesh.get_surface_count()
+		elif gi is MultiMeshInstance3D and (gi as MultiMeshInstance3D).multimesh and (gi as MultiMeshInstance3D).multimesh.mesh:
+			surf = (gi as MultiMeshInstance3D).multimesh.mesh.get_surface_count()
+		var psc: Script = gi.get_parent().get_script()
+		var key := String(gi.name).rstrip("0123456789_@").left(24) + " <" + (psc.resource_path.get_file() if psc else String(gi.get_parent().name).left(14)) + "> " + gi.get_class()
+		if not groups.has(key):
+			groups[key] = [0, 0]
+		groups[key][0] += 1
+		groups[key][1] += surf
+		total += surf
+	print("=== SHADOWDUMP дальность %.0f м: тенеотбрасывателей (поверхностей) %d" % [sd, total])
+	var keys := groups.keys()
+	keys.sort_custom(func(a, b): return groups[a][1] > groups[b][1])
+	for k in keys.slice(0, 20):
+		print("  %-60s узлов=%4d поверхн=%4d" % [k, groups[k][0], groups[k][1]])

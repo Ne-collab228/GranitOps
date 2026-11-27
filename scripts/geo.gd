@@ -18,6 +18,9 @@ static var ground_fn: Callable
 var tools := {}
 var shapes := {}
 var cast_shadows := true
+## Склеивать оттенки одной текстуры в одну поверхность (Mats.merge_info); --nomerge — для сравнения.
+static var merge_default := not ("--nomerge" in OS.get_cmdline_user_args())
+var merge_mats := merge_default
 
 ## Тени рисует не сам склеенный меш (он один на всю базу и на каждый материал — в тень попадали все
 ## его ~19 частей в каждом слое теней), а упрощённая копия: без материалов, кусками SHADOW_CELL м.
@@ -199,7 +202,22 @@ func _wall_seg(mat: String, a: Vector3, dir: Vector3, yaw: float, t0: float, t1:
 ## Создаёт MeshInstance3D и статичные тела. pen_kinds — типы поверхностей, простреливаемых пулей.
 func finish(parent: Node3D, node_name := "geo") -> MeshInstance3D:
 	var mesh := ArrayMesh.new()
+	# оттенки одной текстуры и плоские цвета склеиваются в одну поверхность (Mats.merge_info)
+	var groups := {}
+	var plain: Array = []
 	for mat in tools:
+		var mi_: Array = Mats.merge_info(mat) if merge_mats else []
+		if mi_.is_empty():
+			plain.append(mat)
+			continue
+		var gk: String = mi_[0]
+		if not groups.has(gk):
+			groups[gk] = []
+		groups[gk].append([mat, mi_[1], mi_[2], mi_[3]])
+	for gk in groups:
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _merged_arrays(groups[gk]))
+		mesh.surface_set_material(mesh.get_surface_count() - 1, Mats.get_mat(gk))
+	for mat in plain:
 		var st: SurfaceTool = tools[mat]
 		if ground_fn.is_valid():
 			# цвет вершин = затенение у земли (почти бесплатная замена SSAO на телефоне)
@@ -240,11 +258,161 @@ func finish(parent: Node3D, node_name := "geo") -> MeshInstance3D:
 	return mi
 
 
-static func shadow_proxies(parent: Node3D, node_name: String, mesh: ArrayMesh) -> Array:
+## Склейка нескольких материалов в одну поверхность (материал-массив Mats.array_material): UV × масштаб тайла,
+## UV2.x — слой массива, цвет вершин = sRGB(оттенок × затенение у земли).
+func _merged_arrays(parts: Array) -> Array:
+	var pv := PackedVector3Array()
+	var pn := PackedVector3Array()
+	var pt := PackedFloat32Array()
+	var pu := PackedVector2Array()
+	var pc := PackedColorArray()
+	var p2 := PackedVector2Array()
+	var gfn := ground_fn.is_valid()
+	for part in parts:
+		var st: SurfaceTool = tools[part[0]]
+		var tint: Color = part[1]
+		var uvk: float = part[2]
+		var lay := Vector2(float(part[3]), 0.0)
+		var arr := st.commit_to_arrays()
+		var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var nrm = arr[Mesh.ARRAY_NORMAL]
+		var tan_ = arr[Mesh.ARRAY_TANGENT]
+		var uv = arr[Mesh.ARRAY_TEX_UV]
+		var idx = arr[Mesh.ARRAY_INDEX]
+		var n: int = (idx as PackedInt32Array).size() if idx != null else verts.size()
+		for k in n:
+			var i: int = idx[k] if idx != null else k
+			var v := verts[i]
+			pv.append(v)
+			var nv: Vector3 = nrm[i] if nrm != null else Vector3.UP
+			pn.append(nv)
+			if tan_ != null:
+				pt.append(tan_[i * 4])
+				pt.append(tan_[i * 4 + 1])
+				pt.append(tan_[i * 4 + 2])
+				pt.append(tan_[i * 4 + 3])
+			else:
+				# касательная не задана (Geo.tri и т.п.) — любая перпендикулярная нормали
+				var tv := nv.cross(Vector3.UP if absf(nv.y) < 0.9 else Vector3.RIGHT).normalized()
+				pt.append(tv.x)
+				pt.append(tv.y)
+				pt.append(tv.z)
+				pt.append(1.0)
+			pu.append((uv[i] as Vector2) * uvk if uv != null else Vector2.ZERO)
+			var ao := 1.0
+			if gfn:
+				var kk := clampf((v.y - float(ground_fn.call(v.x, v.z))) / 1.4, 0.0, 1.0)
+				ao = lerpf(0.5, 1.0, kk * kk * (3.0 - 2.0 * kk))
+			pc.append(Color(tint.r * ao, tint.g * ao, tint.b * ao).linear_to_srgb())
+			p2.append(lay)
+	var out := []
+	out.resize(Mesh.ARRAY_MAX)
+	out[Mesh.ARRAY_VERTEX] = pv
+	out[Mesh.ARRAY_NORMAL] = pn
+	out[Mesh.ARRAY_TANGENT] = pt
+	out[Mesh.ARRAY_TEX_UV] = pu
+	out[Mesh.ARRAY_COLOR] = pc
+	out[Mesh.ARRAY_TEX_UV2] = p2
+	return out
+
+
+## Общий сборщик теней уровня: пока Level строит карту, тени всех районов, крупных камней и ящиков-пропсов
+## складываются сюда (ключ — клетка SINK_CELL м, значение — Array вершин) и в конце становятся одним мешем
+## «только тень» на клетку (flush_shadows). Каждый тенеотбрасыватель — вызов отрисовки в КАЖДОМ слое теней,
+## а клеток в радиусе теней немного. null — сборщик выключен, тени пишутся по районам, как раньше.
+static var shadow_sink = null
+const SINK_CELL := 48.0
+
+
+static func _shadow_material() -> StandardMaterial3D:
 	if _shadow_mat == null:
 		_shadow_mat = StandardMaterial3D.new()
 		_shadow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		_shadow_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return _shadow_mat
+
+
+## Треугольники (мировые координаты, по 3 вершины) раскладываются по клеткам.
+static func _cell_tris(cells: Dictionary, verts: PackedVector3Array, idx: PackedInt32Array, cell: float, xf := Transform3D()) -> void:
+	var n := idx.size() if not idx.is_empty() else verts.size()
+	var ident := xf == Transform3D()
+	for t in range(0, n - 2, 3):
+		var a := verts[idx[t] if not idx.is_empty() else t]
+		var b := verts[idx[t + 1] if not idx.is_empty() else t + 1]
+		var c := verts[idx[t + 2] if not idx.is_empty() else t + 2]
+		if not ident:
+			a = xf * a
+			b = xf * b
+			c = xf * c
+		var m := (a + b + c) / 3.0
+		var key := Vector2i(floori(m.x / cell), floori(m.z / cell))
+		if not cells.has(key):
+			cells[key] = []
+		var pv: Array = cells[key]
+		pv.append(a)
+		pv.append(b)
+		pv.append(c)
+
+
+static func _cells_to_nodes(parent: Node3D, node_name: String, cells: Dictionary) -> Array:
+	var out: Array = []
+	for key in cells:
+		var a2 := []
+		a2.resize(Mesh.ARRAY_MAX)
+		a2[Mesh.ARRAY_VERTEX] = PackedVector3Array(cells[key])
+		var am := ArrayMesh.new()
+		am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a2)
+		var smi := MeshInstance3D.new()
+		smi.name = "%s_shadow" % node_name
+		smi.mesh = am
+		smi.material_override = _shadow_material()
+		smi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		parent.add_child(smi)
+		out.append(smi)
+	return out
+
+
+## Все непрозрачные поверхности меша (в координатах xf) — в сборщик теней. false — сборщик выключен.
+static func sink_mesh(mesh: Mesh, xf := Transform3D()) -> bool:
+	if shadow_sink == null:
+		return false
+	for s in mesh.get_surface_count():
+		var mat := mesh.surface_get_material(s) as BaseMaterial3D
+		if mat and mat.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
+			continue
+		var arr := mesh.surface_get_arrays(s)
+		_cell_tris(shadow_sink, arr[Mesh.ARRAY_VERTEX], arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] != null else PackedInt32Array(), SINK_CELL, xf)
+	return true
+
+
+## Тень-коробка (или цилиндр) для мелкого пропса: 12–40 треугольников вместо своего вызова в каждом слое теней.
+static func sink_box(xf: Transform3D, box: AABB, cyl := false) -> bool:
+	if shadow_sink == null:
+		return false
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	if cyl:
+		add_cyl(st, Transform3D(Basis(), box.get_center()), maxf(box.size.x, box.size.z) * 0.5, maxf(box.size.x, box.size.z) * 0.5, box.size.y, 10)
+	else:
+		add_box(st, box.get_center(), box.size)
+	var arr := st.commit_to_arrays()
+	_cell_tris(shadow_sink, arr[Mesh.ARRAY_VERTEX], PackedInt32Array(), SINK_CELL, xf)
+	return true
+
+
+## Закрыть сборщик и создать меши теней по клеткам.
+static func flush_shadows(parent: Node3D) -> void:
+	if shadow_sink == null:
+		return
+	var cells: Dictionary = shadow_sink
+	shadow_sink = null
+	_cells_to_nodes(parent, "world", cells)
+
+
+static func shadow_proxies(parent: Node3D, node_name: String, mesh: ArrayMesh) -> Array:
+	if shadow_sink != null and (parent.is_inside_tree() or parent.transform == Transform3D()):
+		sink_mesh(mesh, parent.global_transform if parent.is_inside_tree() else Transform3D())
+		return []
 	var cells := {}
 	for s in mesh.get_surface_count():
 		# альфа-тест (сетка забора) копией не передать — такие поверхности тень не отбрасывают
@@ -252,37 +420,8 @@ static func shadow_proxies(parent: Node3D, node_name: String, mesh: ArrayMesh) -
 		if mat and mat.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
 			continue
 		var arr := mesh.surface_get_arrays(s)
-		var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
-		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
-		var n := idx.size() if not idx.is_empty() else verts.size()
-		for t in range(0, n - 2, 3):
-			var a := verts[idx[t] if not idx.is_empty() else t]
-			var b := verts[idx[t + 1] if not idx.is_empty() else t + 1]
-			var c := verts[idx[t + 2] if not idx.is_empty() else t + 2]
-			var m := (a + b + c) / 3.0
-			var key := Vector2i(floori(m.x / SHADOW_CELL), floori(m.z / SHADOW_CELL))
-			if not cells.has(key):
-				cells[key] = PackedVector3Array()
-			var pv: PackedVector3Array = cells[key]
-			pv.append(a)
-			pv.append(b)
-			pv.append(c)
-			cells[key] = pv
-	var out: Array = []
-	for key in cells:
-		var a2 := []
-		a2.resize(Mesh.ARRAY_MAX)
-		a2[Mesh.ARRAY_VERTEX] = cells[key]
-		var am := ArrayMesh.new()
-		am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a2)
-		var smi := MeshInstance3D.new()
-		smi.name = "%s_shadow" % node_name
-		smi.mesh = am
-		smi.material_override = _shadow_mat
-		smi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
-		parent.add_child(smi)
-		out.append(smi)
-	return out
+		_cell_tris(cells, arr[Mesh.ARRAY_VERTEX], arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] != null else PackedInt32Array(), SHADOW_CELL)
+	return _cells_to_nodes(parent, node_name, cells)
 
 
 ## Треугольник с гарантированно лицевой (по часовой) ориентацией относительно нормали n.
