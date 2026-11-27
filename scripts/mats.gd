@@ -49,9 +49,76 @@ static func mesh_instances(root: Node) -> Array:
 	return out
 
 
+## Слияние материалов склеенных мешей (Geo.finish): все текстуры из DEFS собраны в массивы текстур
+## (assets/tex_arr, tools/gen_tex_array.py), и весь район рисуется ОДНИМ материалом: номер слоя — в UV2.x,
+## оттенок (и затенение у земли) — в цвете вершин, масштаб тайла — в UV. Плоские цвета «#rrggbb» — белый слой.
+## Каждый материал — вызов отрисовки на район, а на Mali упор именно в них.
+## Порядок слоёв — как в tools/gen_tex_array.py.
+const ARR_LAYERS := ["concrete_wall_003", "concrete_floor_worn_001", "worn_cracked_plaster", "corrugated_iron_02",
+	"rusty_metal_02", "container_side", "metal_plate", "wood_planks_grey", "asphalt_02", "hessian_230",
+	"green_metal_rust", "rock_boulder_dry", "bark_brown_02", "white"]
+const ARR_SHADER := """
+shader_type spatial;
+render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
+uniform sampler2DArray tex_diff : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2DArray tex_arm : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2DArray tex_nor : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform float use_normal = 1.0;
+varying flat float layer;
+void vertex() {
+	layer = UV2.x;
+	// цвет вершин хранится в sRGB (точность тёмных оттенков) — в линейный
+	vec3 c = COLOR.rgb;
+	COLOR.rgb = mix(pow((c + vec3(0.055)) * (1.0 / 1.055), vec3(2.4)), c * (1.0 / 12.92), lessThan(c, vec3(0.04045)));
+}
+void fragment() {
+	vec3 uvw = vec3(UV, layer);
+	ALBEDO = texture(tex_diff, uvw).rgb * COLOR.rgb;
+	vec3 orm = texture(tex_arm, uvw).rgb;
+	AO = orm.r;
+	ROUGHNESS = orm.g;
+	METALLIC = orm.b;
+	if (use_normal > 0.5) {
+		NORMAL_MAP = texture(tex_nor, uvw).rgb;
+	}
+}
+"""
+static var _arr_mat: ShaderMaterial
+
+
+## [ключ общего материала, оттенок (линейный), множитель UV, слой] или пустой массив, если материал особый
+## (стекло, грязь, забор, свечение…) и остаётся отдельной поверхностью.
+static func merge_info(key: String) -> Array:
+	if key.begins_with("#") and key.length() == 7:
+		return ["mg_arr", Color(key).srgb_to_linear(), 1.0, ARR_LAYERS.size() - 1]
+	if DEFS.has(key):
+		var d: Array = DEFS[key]
+		var li := ARR_LAYERS.find(String(d[0]))
+		if li < 0:
+			return []
+		var tint: Color = d[3] if d.size() > 3 else Color.WHITE
+		return ["mg_arr", tint.srgb_to_linear(), 1.0 / float(d[1]), li]
+	return []
+
+
+static func array_material() -> ShaderMaterial:
+	if _arr_mat == null:
+		var sh := Shader.new()
+		sh.code = ARR_SHADER
+		_arr_mat = ShaderMaterial.new()
+		_arr_mat.shader = sh
+		_arr_mat.set_shader_parameter("tex_diff", load("res://assets/tex_arr/geo_diff.jpg"))
+		_arr_mat.set_shader_parameter("tex_arm", load("res://assets/tex_arr/geo_arm.jpg"))
+		_arr_mat.set_shader_parameter("tex_nor", load("res://assets/tex_arr/geo_nor.jpg"))
+		_arr_mat.set_shader_parameter("use_normal", 1.0 if normals_on else 0.0)
+	return _arr_mat
+
+
 static func get_mat(key: String) -> Material:
 	if _cache.has(key):
 		return _cache[key]
+	if key == "mg_arr":
+		return array_material()
 	if key.begins_with("#"):
 		return flat(Color(key), 0.9)
 	if key.begins_with("!"):
@@ -272,3 +339,5 @@ static func apply_quality() -> void:
 	normals_on = bool(Settings.data.normal_maps)
 	for m in _normal_mats:
 		(m as BaseMaterial3D).normal_enabled = normals_on
+	if _arr_mat:
+		_arr_mat.set_shader_parameter("use_normal", 1.0 if normals_on else 0.0)

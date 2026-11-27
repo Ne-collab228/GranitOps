@@ -41,6 +41,11 @@ var pivot: Node3D
 var shape: CollisionShape3D
 var glint: MeshInstance3D
 var on_screen := true
+## Дальний солдат рисуется общим MultiMesh (FarCrowd): свой меш скрыт, поза не считается.
+var crowd := false
+var _posed := false
+var shadow_on := true
+var _lod_mis: Array[MeshInstance3D] = []
 
 var awareness := 0.0
 var alert := false
@@ -143,6 +148,7 @@ func _ready() -> void:
 			# тени рисуются только вблизи, дальнему упрощённому солдату тень не нужна
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		skel.add_child(mi)
+		_lod_mis.append(mi)
 		# без пути к скелету меш не деформируется (по умолчанию путь пустой) — солдаты стояли «статуями»
 		mi.skeleton = NodePath("..")
 		mi.skin = SoldierRig.skin(skel)
@@ -654,7 +660,7 @@ func _process(delta: float) -> void:
 		if glint.visible:
 			var s := 0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.02)
 			glint.scale = Vector3(s, s, s)
-	if on_screen and not Game.no_pose:
+	if on_screen and not Game.no_pose and not crowd:
 		# анимация скелета в GDScript дорогая для слабого процессора: дальних солдат обновляем реже
 		_pose_acc += delta
 		var step := 1
@@ -671,7 +677,17 @@ var _pose_acc := 0.0
 var _pose_phase := randi() % 4
 
 
+func set_crowd(on: bool) -> void:
+	crowd = on
+	for mi in _lod_mis:
+		mi.visible = not on
+	if not on:
+		_pose_acc = 0.0
+		_pose(0.0)
+
+
 func _pose(delta: float, limp := 0.0) -> void:
+	_posed = true
 	var sp := Vector2(velocity.x, velocity.z).length()
 	var mv := clampf(sp / 0.6, 0.0, 1.0) * (1.0 - limp)
 	var prev_c := cos(gait)

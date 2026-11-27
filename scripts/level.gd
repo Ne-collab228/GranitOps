@@ -134,6 +134,8 @@ func build(bake := false) -> void:
 	_define_enemies()
 	progress.emit("Постройки")
 	await get_tree().process_frame
+	# тени районов, крупных камней и ящиков — общими клетками (Geo.shadow_sink), закрывается после природы
+	Geo.shadow_sink = {}
 	await _build_sites()
 	_finish_fences()
 	progress.emit("Растительность")
@@ -141,6 +143,7 @@ func build(bake := false) -> void:
 	_build_nature()
 	if outer_half <= 0.0:
 		_build_backdrop()
+	Geo.flush_shadows(self)
 	progress.emit("Навигация")
 	await get_tree().process_frame
 	await _setup_navigation(bake)
@@ -747,6 +750,12 @@ func cover(x: float, z: float, y := -1000.0) -> void:
 	cover_points.append(Vector3(x, ground(x, z) if y < -999.0 else y, z))
 
 
+## Пропсы, чья тень заменяется простой формой (Geo.sink_box): модель -> цилиндр (true) или коробка (false).
+const PROXY_SHADOW := {"old_military_crate": false, "wooden_crate_01": false, "wooden_crate_02": false,
+	"ammo_box": false, "utility_box_01": false, "portable_generator": false, "Barrel_01": true, "Barrel_02": true,
+	"barrel_03": true, "propane_tank": true, "metal_jerrycan_green": false}
+
+
 func _prop(model: String, pos: Vector3, yaw := 0.0, collide := "box", surf := "metal", scale := 1.0) -> Node3D:
 	var flat_path := "res://assets/models_flat/%s.res" % model
 	if not _scenes.has(model) and ResourceLoader.exists(flat_path):
@@ -801,6 +810,9 @@ func _prop(model: String, pos: Vector3, yaw := 0.0, collide := "box", surf := "m
 	node.rotation.y = yaw
 	node.scale = Vector3.ONE * scale
 	_props_root.add_child(node)
+	# ящики, бочки, баллоны: тень — коробкой/цилиндром в общих клетках теней, а не своим вызовом в каждом слое
+	if PROXY_SHADOW.has(model) and Geo.sink_box(node.global_transform, _aabbs[model], PROXY_SHADOW[model]):
+		fmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	if collide != "":
 		var bb: AABB = _aabbs[model]
 		var body := StaticBody3D.new()
@@ -1358,8 +1370,8 @@ func _build_nature() -> void:
 		var rmi := MeshInstance3D.new()
 		rmi.mesh = (rock_chunks[key3] as SurfaceTool).commit()
 		rmi.material_override = rock_mat
-		# мелкие камни: без тени и ближе граница видимости
-		if not key3[1]:
+		# мелкие камни: без тени и ближе граница видимости; тени крупных — в общих клетках теней
+		if not key3[1] or Geo.sink_mesh(rmi.mesh):
 			rmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(rmi)
 		veg_ranges.append([rmi, 360.0 if key3[1] else 200.0])

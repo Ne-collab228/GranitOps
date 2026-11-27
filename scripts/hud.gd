@@ -185,6 +185,8 @@ func _process(delta: float) -> void:
 
 
 func text(c: Control, pos: Vector2, s: String, size: int, col: Color, align := HORIZONTAL_ALIGNMENT_LEFT, width := -1.0) -> void:
+	if _dbg_hide.has("text"):
+		return
 	if c == canvas:
 		ub.text(pos, s, size, col, align, width)
 		return
@@ -193,6 +195,15 @@ func text(c: Control, pos: Vector2, s: String, size: int, col: Color, align := H
 
 
 var ub := UiBatch.new()
+## Отладка замера (-- --bench --hudhide=list,marks,text): скрыть части интерфейса боя.
+var _dbg_hide := _hud_hide_arg()
+
+
+static func _hud_hide_arg() -> PackedStringArray:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--hudhide="):
+			return a.substr(10).split(",")
+	return PackedStringArray()
 
 
 ## Отладка (-- --play --mapshot [--touch]): снимки интерфейса навигации и замер вызовов отрисовки.
@@ -463,8 +474,9 @@ func _draw_hud(c: Control, p: Player) -> void:
 	# --- задачи и метки целей
 	var mis: Mission = Game.mission
 	if mis:
-		_goal_list(c, p, mis)
-		if not map.open:
+		if not _dbg_hide.has("list"):
+			_goal_list(c, p, mis)
+		if not map.open and not _dbg_hide.has("marks"):
 			_goal_marks(c, p, mis)
 		for o in mis.objectives:
 			var done: bool = o.done
