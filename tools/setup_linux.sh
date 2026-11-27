@@ -61,4 +61,7 @@ set_key export/android/java_sdk_path "\"$JAVA_HOME_17\""
 set_key export/android/android_sdk_path "\"$SDK\""
 
 rm -rf "$T/dl"
+
+# 8. Xvfb и программный OpenGL для тестов с окном (tools/run_x.sh)
+sh "$(dirname "$0")/setup_x.sh"
 echo "Готово. Проверка: godot --version; cd $PROJ && godot --headless --path . --import"
