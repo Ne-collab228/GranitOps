@@ -139,7 +139,7 @@ func _ready() -> void:
 			mi.visibility_range_begin = 34.0
 			mi.visibility_range_begin_margin = 3.0
 			# на большой карте дальние солдаты (за полкилометра — пара пикселей) не стоят вызова отрисовки
-			mi.visibility_range_end = 520.0
+			mi.visibility_range_end = 320.0
 			# тени рисуются только вблизи, дальнему упрощённому солдату тень не нужна
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		skel.add_child(mi)

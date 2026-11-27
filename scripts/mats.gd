@@ -82,7 +82,7 @@ static func get_mat(key: String) -> Material:
 		# подтёки и пятна на фасадах (наклейки с альфой, тени не отбрасывают)
 		var gr := StandardMaterial3D.new()
 		gr.albedo_texture = load("res://assets/gen/grime.png")
-		gr.albedo_color = Color(0.2, 0.18, 0.15, 0.55)
+		gr.albedo_color = Color(0.2, 0.18, 0.15, 0.28)
 		gr.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		gr.roughness = 1.0
 		gr.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS

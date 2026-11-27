@@ -96,7 +96,7 @@ class B extends RefCounted:
 	var shutters := false
 	var nalich := ""         # наличники ("" — нет, тогда перемычка-бровка)
 	var brow := 0.6          # вероятность бровки над окном без наличников
-	var grime := 0.55        # вероятность подтёка под окном
+	var grime := 0.25        # вероятность подтёка под окном
 	var soot := false        # копоть над окнами (руины)
 	var canopy := 1          # козырёк над наружной дверью: 0 нет, 1 бетон, 2 лист на столбах, 3 лист на кронштейнах
 	var ops := {}            # Vector2i(этаж, сторона) -> [[t0, t1, y0, y1, вид], ...]
@@ -567,7 +567,7 @@ class B extends RefCounted:
 
 	## Случайные пятна на стенах (мягкие разводы).
 	func stains(count0: int, hmax := 2.6) -> void:
-		var count := (count0 + 1) / 2
+		var count := (count0 + 2) / 3
 		for i in count:
 			var si := rng.randi() % 4
 			var s := side(si)
@@ -590,7 +590,7 @@ class B extends RefCounted:
 			var ln: float = s[3]
 			var k := maxi(1, int(ln / 2.6))
 			for i in k:
-				if rng.randf() < 0.35:
+				if rng.randf() < 0.6:
 					continue
 				var hh := rng.randf_range(0.7, 1.6)
 				decal(a + dir * (ln * (i + 0.5) / k) + Vector3(0, y - hh * 0.5, 0) + n * (th * 0.5 + 0.01), n, dir,
@@ -1681,7 +1681,7 @@ static func booth(g: Geo, rng: RandomNumberGenerator, pos: Vector3, yaw := 0.0, 
 	b.broken = 0.3
 	b.boarded = 0.0
 	b.brow = 0.0
-	b.grime = 0.3
+	b.grime = 0.15
 	b.canopy = 0
 	b.op_at(0, 0, -0.9, 0.9, 1.0, 2.25, "win")
 	b.op_at(0, 1, -0.75, 0.75, 1.0, 2.25, "win")
@@ -1852,7 +1852,7 @@ static func ruin(g: Geo, rng: RandomNumberGenerator, pos: Vector3, yaw := 0.0, o
 	b.boarded = 0.1
 	b.brow = 0.3
 	b.soot = true
-	b.grime = 0.3
+	b.grime = 0.15
 	b.canopy = 0
 	var ix0 := -b.w * 0.5 + b.th
 	var ix1 := b.w * 0.5 - b.th
