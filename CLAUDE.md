@@ -49,6 +49,23 @@ build_apk.bat                                  # release-сборка build/Gran
 Окно теста появляется на экране пользователя — держать его маленьким. Если он в это время играет в другую
 игру, FPS на ПК ничего не значит, а перетаскивание окна подвешивает тест.
 
+### Linux-контейнер
+
+Godot (`godot` в PATH или `$GODOT`), JDK 17 и Android SDK (`/opt/granit-tools`) уже стоят в образе; пути для экспорта —
+в `~/.config/godot/editor_settings-4.7.tres`. Окна нет — тесты идут в виртуальном X-сервере с программным GL (медленно:
+FPS ничего не значит, автотест `--test` занимает больше 8 минут — запускать с `timeout` и в фоне).
+
+```bash
+sh tools/setup_linux.sh    # один раз: xvfb + mesa (идемпотентно)
+godot --headless --path . --import              # первый запуск в новой копии
+sh tools/check.sh          # компиляция скриптов; код 1 и список ошибок при SCRIPT ERROR/Parse Error — запускать перед run_x.sh
+tools/run_x.sh --path . --resolution 960x540 -- --test --touch --preset=0   # тест с окном; скриншоты ~/.local/share/GranitOps/test_*.png
+godot --headless --path . --export-debug "Android arm64" /tmp/x.apk         # отладочный APK (подпись debug.keystore из настроек)
+```
+
+Из экспорта исключены `tools/*`, превью-сцены, `assets/vehicles/src/*`, `*.md`, `*.txt` (`exclude_filter` в `export_presets.cfg`) —
+новые вспомогательные сцены и исходники моделей добавлять туда же. Скрипты на `res://tools` в игре не грузятся.
+
 ## Архитектура
 
 Сцена одна (`scenes/main.tscn`, пустой узел со `scripts/main.gd`). **Всё строится кодом**, редактор не нужен.
