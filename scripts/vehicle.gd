@@ -5,7 +5,7 @@ extends VehicleBody3D
 ## Пустая машина «спит» (freeze), дальняя ИИ-машина едет по маршруту без физики (кинематически).
 
 const SUSP := 0.22
-const LOD_DIST := 55.0
+const LOD_DIST := 40.0  # ближе — кузов + отдельные колёса (по 1 вызову), дальше — один меш с впаянными колёсами
 ## Дальше этого от игрока ИИ-машина едет без физики.
 const FAR_SIM := 230.0
 
@@ -38,12 +38,18 @@ var _stuck_t := 0.0
 ## ИИ: сколько секунд упирается в препятствие на газу и сколько раз подряд пришлось сдавать назад.
 var _ai_stuck_t := 0.0
 var _ai_stuck_n := 0
+var _ai_stuck_win := 0.0
+var _prog_t := 0.0
+var _prog_pos := Vector3.ZERO
 var _rev_stuck_t := 0.0
 var _fwd_force_t := 0.0
 var _reverse_t := 0.0
 var _kin := false
 var _see_t := 0.0
 var _hit_cool := {}
+var _avoid_side := 0.0
+var _avoid_t := 0.0
+var _route_ang := 0.0
 
 
 func setup(id: String, color_i: int, xf: Transform3D) -> void:
@@ -323,8 +329,9 @@ func explode(by_player := true) -> void:
 	engine_force = 0.0
 	brake = 60.0
 	ai = false
-	# экипаж погибает вместе с машиной
-	crew.clear()
+	# часть экипажа успевает выброситься: раненые, настороже; остальные гибнут вместе с машиной
+	if not crew.is_empty():
+		_dismount(true)
 
 
 # ------------------------------------------------------------------ ИИ-водитель
@@ -418,20 +425,85 @@ func _ai(delta: float) -> void:
 		return
 	steer_in = clampf(ang * 1.8, -1.0, 1.0)
 	var want := cruise * lerpf(1.0, 0.45, clampf(absf(ang) / 0.8, 0.0, 1.0))
+	# объезд препятствий: лучи вперёд, руль в свободную сторону, торможение заранее
+	_route_ang = ang
+	var av := _ai_avoid(delta)
+	var urg: float = av.y
+	if urg > 0.0:
+		steer_in = clampf(lerpf(steer_in, av.x * 0.9, clampf(urg * 1.6, 0.0, 1.0)), -1.0, 1.0)
+		want *= lerpf(1.0, 0.45, urg)
 	throttle_in = clampf((want - speed) * 0.4, -1.0, 1.0)
-	# застрял — сдать назад
+	# нет продвижения: за 10 с сдвинулись меньше чем на 9 м (толчёмся перед непроходимым местом) — ехать обратно по маршруту
+	_prog_t += delta
+	if _prog_t > 10.0:
+		if global_position.distance_to(_prog_pos) < 9.0:
+			route_dir = -route_dir
+			route_i = clampi(route_i + route_dir * 2, 0, route.size() - 1)
+			_ai_stuck_n = 0
+		_prog_t = 0.0
+		_prog_pos = global_position
+	# застрял — сдать назад; два раза за 40 с в одном месте — дорога непроходима, развернуться и ехать обратно по маршруту
+	_ai_stuck_win = maxf(_ai_stuck_win - delta, 0.0)
+	if _ai_stuck_win <= 0.0:
+		_ai_stuck_n = 0
 	if absf(speed) < 0.7 and throttle_in > 0.3:
 		_ai_stuck_t += delta
 		if _ai_stuck_t > 1.6:
 			_ai_stuck_t = 0.0
 			_ai_stuck_n += 1
+			_ai_stuck_win = 40.0
 			_reverse_t = 1.8
-			# второй раз подряд — объезд: пропустить ближайшую точку маршрута
 			if _ai_stuck_n >= 2:
-				route_i = clampi(route_i + route_dir, 0, route.size() - 1)
+				_ai_stuck_n = 0
+				route_dir = -route_dir
+				route_i = clampi(route_i + route_dir * 2, 0, route.size() - 1)
 	elif absf(speed) > 3.0:
 		_ai_stuck_t = 0.0
-		_ai_stuck_n = 0
+
+
+## Лучи вперёд на уровне капота: три параллельных (ширина машины) и веер ±25°/±50°.
+## Возвращает Vector2(сторона объезда: + влево, срочность 0..1). Сторона запоминается на 1.5 с (без «виляния»).
+func _ai_avoid(delta: float) -> Vector2:
+	var fwd := -global_transform.basis.z
+	fwd.y = 0.0
+	if fwd.length() < 0.1:
+		return Vector2.ZERO
+	fwd = fwd.normalized()
+	var side_v := fwd.cross(Vector3.UP)  # вправо
+	var half_w := model.body_aabb.size.x * 0.5 + 0.2
+	var reach := 8.0 + maxf(speed, 0.0) * 1.5
+	var o := global_position + Vector3(0, 0.9, 0) + fwd * (model.body_aabb.size.z * 0.5 - 0.3)
+	var space := get_world_3d().direct_space_state
+	var mask := Game.L_WORLD | Game.L_FENCE
+	var ray := func(from: Vector3, dir: Vector3, l: float) -> float:
+		var q := PhysicsRayQueryParameters3D.create(from, from + dir * l, mask)
+		q.exclude = [get_rid()]
+		var h := space.intersect_ray(q)
+		return l if h.is_empty() else from.distance_to(h.position)
+	var dc: float = ray.call(o, fwd, reach)
+	var dl: float = ray.call(o - side_v * half_w, fwd, reach)
+	var dr: float = ray.call(o + side_v * half_w, fwd, reach)
+	var front := minf(dc, minf(dl, dr))
+	_avoid_t -= delta
+	if front >= reach:
+		if _avoid_t < 0.0:
+			_avoid_side = 0.0
+		return Vector2.ZERO
+	# куда свободнее: веер
+	var fl := 0.0
+	var fr := 0.0
+	for a in [25.0, 50.0]:
+		fl += ray.call(o, fwd.rotated(Vector3.UP, deg_to_rad(a)), reach)
+		fr += ray.call(o, fwd.rotated(Vector3.UP, deg_to_rad(-a)), reach)
+	if _avoid_t <= 0.0 or _avoid_side == 0.0:
+		# при равных шансах — в сторону цели (знак руля к маршруту)
+		var side := 1.0 if fl > fr else -1.0
+		if absf(fl - fr) < 2.0:
+			side = signf(_route_ang) if absf(_route_ang) > 0.05 else 1.0
+		_avoid_side = side
+		_avoid_t = 1.5
+	var urg := clampf(1.0 - (front - 2.5) / maxf(reach - 2.5, 1.0), 0.0, 1.0)
+	return Vector2(_avoid_side, urg)
 
 
 ## Тревога: остановиться и высадить экипаж.
@@ -444,11 +516,13 @@ func _alarm() -> void:
 		freeze = false
 
 
-func _dismount() -> void:
+func _dismount(blast := false) -> void:
 	var p: Player = Game.player
 	var sides := [Vector3(-1.4, 0, -0.6), Vector3(1.4, 0, -0.6), Vector3(-1.4, 0, 0.8), Vector3(1.4, 0, 0.8)]
 	var bb := model.body_aabb
 	for i in crew.size():
+		if blast and i % 2 == 1:
+			continue  # при взрыве выживает каждый второй
 		var sp: Dictionary = (crew[i] as Dictionary).duplicate()
 		var off: Vector3 = sides[i % sides.size()]
 		off.x *= bb.size.x * 0.5 + 0.5
@@ -459,9 +533,13 @@ func _dismount() -> void:
 		sp.route = PackedVector3Array()
 		sp.hold = false
 		var e: Enemy = Game.main.spawn_enemy(sp)
+		if blast:
+			e.hp = 40.0
 		if p:
 			e.alerted(p.global_position)
 	crew.clear()
+	if blast:
+		return
 	ai = false
 	throttle_in = 0.0
 	steer_in = 0.0

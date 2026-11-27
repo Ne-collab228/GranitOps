@@ -295,4 +295,7 @@ static func paint_icon(t: CanvasItem, id: String, c: Vector2, s: float, col: Col
 			t.draw_rect(Rect2(c + Vector2(-9, -11) * s, Vector2(6, 22) * s), col)
 			t.draw_rect(Rect2(c + Vector2(3, -11) * s, Vector2(6, 22) * s), col)
 		"interact":
-			t.draw_circle(c, 13.0 * s, col)
+			# выход/использовать: рамка двери и стрелка наружу
+			t.draw_polyline(PackedVector2Array([c + Vector2(-2, -15) * s, c + Vector2(-15, -15) * s, c + Vector2(-15, 15) * s, c + Vector2(-2, 15) * s]), col, 3.0 * wm)
+			t.draw_line(c + Vector2(-6, 0) * s, c + Vector2(10, 0) * s, col, 3.5 * wm)
+			t.draw_colored_polygon(PackedVector2Array([c + Vector2(8, -8) * s, c + Vector2(19, 0) * s, c + Vector2(8, 8) * s]), col)

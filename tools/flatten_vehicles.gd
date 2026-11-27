@@ -119,7 +119,22 @@ func _append(groups: Dictionary, mi: MeshInstance3D, xf: Transform3D, def: Dicti
 		groups[key] = [gv, gn, gu, gc, gi]
 
 
-func _build_mesh(groups: Dictionary) -> ArrayMesh:
+## lod = true: собирает через ImporterMesh и генерирует уровни детализации (движок сам переключает по размеру на экране).
+func _build_mesh(groups: Dictionary, lod := false) -> ArrayMesh:
+	if lod:
+		var im := ImporterMesh.new()
+		for key in groups:
+			var g: Array = groups[key]
+			var a := []
+			a.resize(Mesh.ARRAY_MAX)
+			a[Mesh.ARRAY_VERTEX] = g[0]
+			a[Mesh.ARRAY_NORMAL] = g[1]
+			a[Mesh.ARRAY_TEX_UV] = g[2]
+			a[Mesh.ARRAY_COLOR] = g[3]
+			a[Mesh.ARRAY_INDEX] = g[4]
+			im.add_surface(Mesh.PRIMITIVE_TRIANGLES, a, [], {}, _material(key))
+		im.generate_lods(25.0, 60.0, [])
+		return im.get_mesh()
 	var mesh := ArrayMesh.new()
 	for key in groups:
 		var g: Array = groups[key]
@@ -223,13 +238,17 @@ func _flatten(id: String, def: Dictionary) -> void:
 			var local := Transform3D(Basis.from_scale(Vector3.ONE * ws), -(raw_hubs[src_k] as Vector3) * ws) * t2
 			var place := Transform3D(Basis(Vector3.UP, PI) if hp.x < 0.0 else Basis(), hp)
 			_append(far, it2[0], place * local, def, c)
-		vm.bodies.append(_build_mesh(groups))
-		vm.bodies_far.append(_build_mesh(far))
+		vm.bodies.append(_build_mesh(groups, true))
+		vm.bodies_far.append(_build_mesh(far, true))
 	var path := "res://assets/vehicles/%s.res" % id
 	var err := ResourceSaver.save(vm, path, ResourceSaver.FLAG_COMPRESS)
 	var tris := 0
 	for s in vm.bodies[0].get_surface_count():
 		tris += (vm.bodies[0].surface_get_arrays(s)[Mesh.ARRAY_INDEX] as PackedInt32Array).size() / 3
+	var ftris := 0
+	for s in vm.bodies_far[0].get_surface_count():
+		ftris += (vm.bodies_far[0].surface_get_arrays(s)[Mesh.ARRAY_INDEX] as PackedInt32Array).size() / 3
+	print("%s: дальний %d тр., LOD-уровней у поверхности 0: %d" % [id, ftris, vm.bodies_far[0].surface_get_lod_count(0) if vm.bodies_far[0].has_method("surface_get_lod_count") else -1])
 	print("%s: кузов %d тр., поверхностей %d, колёс %d, r=%.2f, габариты %s, ошибка %d" % [id, tris, vm.bodies[0].get_surface_count(), vm.hubs.size(), r, vm.body_aabb.size, err])
 	root.free()
 

@@ -1013,6 +1013,27 @@ func _vehtest() -> void:
 			near = v
 			break
 	if near != null:
+		# --vehspot=x,z: поставить ИИ-машину в точку (для проверки застреваний), ехать к ближайшей точке маршрута по ходу -x
+		for a in OS.get_cmdline_user_args():
+			if a.begins_with("--vehspot="):
+				var xz := a.substr(10).split(",")
+				var sp := Vector3(float(xz[0]), 0, float(xz[1]))
+				sp.y = level.ground(sp.x, sp.z) + 0.8
+				var bi := 0
+				var bd := 1e9
+				for k in near.route.size():
+					var dd := Vector2(near.route[k].x - sp.x, near.route[k].z - sp.z).length()
+					if dd < bd:
+						bd = dd
+						bi = k
+				near.route_dir = -1
+				near.route_i = clampi(bi - 1, 0, near.route.size() - 1)
+				var tgt0: Vector3 = near.route[near.route_i]
+				near.global_transform = Transform3D(Basis.looking_at(Vector3(tgt0.x - sp.x, 0, tgt0.z - sp.z).normalized(), Vector3.UP), sp)
+				near.linear_velocity = Vector3.ZERO
+				near.angular_velocity = Vector3.ZERO
+				near._kin = false
+				near.freeze = false
 		var side := (-near.global_transform.basis.z).cross(Vector3.UP).normalized()
 		p.global_position = _test_hop(near.global_position + side * 120.0 + (-near.global_transform.basis.z) * 40.0)
 		maxfly = 0.0
@@ -1072,6 +1093,24 @@ func _vehtest() -> void:
 		await _frames(60)
 		await _shot("veh_wreck")
 		print("VEH врагов было ", crew0, " стало ", Game.enemies.size())
+	# --- взрыв машины С экипажем (без предварительной тревоги): выживает каждый второй, раненый
+	var tv: Vehicle = null
+	for v in ais:
+		if is_instance_valid(v) and v.ai and not v.dead and not v.crew.is_empty():
+			tv = v
+			break
+	if tv != null:
+		var n_crew: int = tv.crew.size()
+		var n0 := Game.enemies.size()
+		tv.explode(true)
+		await _frames(5)
+		var hurt := 0
+		for e in Game.enemies:
+			if is_instance_valid(e) and e.hp < 100.0 and e.global_position.distance_to(tv.global_position) < 8.0:
+				hurt += 1
+		print("VEH взрыв с экипажем: экипаж ", n_crew, ", врагов было ", n0, " стало ", Game.enemies.size(), ", раненых рядом ", hurt, ", экипаж в машине ", tv.crew.size())
+	else:
+		print("VEH взрыв с экипажем: нет ИИ-машины с экипажем")
 	get_tree().quit()
 
 
