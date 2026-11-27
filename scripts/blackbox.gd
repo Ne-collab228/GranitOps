@@ -22,6 +22,15 @@ var _t := 0.0
 var _start_ms := 0
 var _errors := 0
 var _paused := false
+## Журнал текущего запуска: user://logs/<дата_время>.txt, дописывается и сбрасывается на диск сразу.
+const LOG_DIR := "user://journals"
+const LOG_EVERY := 5  # каждый 5-й замер (по 2 с) = раз в 10 с
+var session_file := ""
+var _slog: FileAccess
+var _tick := 0
+var _skip_log := false
+var _uploader: LogUploader
+var _upload_started := false
 
 
 class BoxLogger extends Logger:
@@ -55,10 +64,51 @@ func _ready() -> void:
 	var lg := BoxLogger.new()
 	lg.box = self
 	OS.add_logger(lg)
+	_open_session_log()
 	note("START %s %s %s, экран %s, ОЗУ всего %s, видео %s, рендер %s, версия %s" % [
 		OS.get_model_name(), OS.get_name(), OS.get_version(), DisplayServer.window_get_size(), _mb_kb(_meminfo("MemTotal")),
 		RenderingServer.get_video_adapter_name(), RenderingServer.get_current_rendering_method(),
 		ProjectSettings.get_setting("application/config/version", "?")])
+	_log_raw("УСТРОЙСТВО " + _device_name() + ", экран " + str(DisplayServer.screen_get_size()) + ", GPU " + RenderingServer.get_video_adapter_name())
+	_log_raw(Settings.summary())
+	_log_raw("карта=%d" % int(Settings.data.map))
+	_uploader = LogUploader.new()
+	_uploader.setup(session_file.get_file(), _device_slug())
+	add_child(_uploader)
+
+
+func _device_name() -> String:
+	var m := OS.get_model_name()
+	return "pc" if m == "" or m == "GenericDevice" else m
+
+
+## Имя устройства для пути в репозитории: только буквы, цифры, «-», «_».
+func _device_slug() -> String:
+	var out := ""
+	for c in _device_name():
+		if (c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or (c >= "0" and c <= "9") or c == "-" or c == "_":
+			out += c
+	return out if out != "" else "pc"
+
+
+func _open_session_log() -> void:
+	DirAccess.make_dir_recursive_absolute(LOG_DIR)
+	var stamp := Time.get_datetime_string_from_system(false, false).replace(":", "-").replace("T", "_")
+	var fname := stamp + ".txt"
+	var n := 1
+	while FileAccess.file_exists(LOG_DIR.path_join(fname)):
+		n += 1
+		fname = "%s_%d.txt" % [stamp, n]
+	session_file = LOG_DIR.path_join(fname)
+	_slog = FileAccess.open(session_file, FileAccess.WRITE)
+
+
+## Строка в журнал запуска (с реальным временем) и немедленный сброс на диск.
+func _log_raw(text: String) -> void:
+	if _slog == null:
+		return
+	_slog.store_line("%s %s" % [Time.get_time_string_from_system(), text])
+	_slog.flush()
 
 
 ## Значение из /proc/meminfo или /proc/self/status в килобайтах (-1, если недоступно).
@@ -171,6 +221,8 @@ func note(text: String) -> void:
 func _add(text: String) -> void:
 	var s := "%4ds %s" % [(Time.get_ticks_msec() - _start_ms) / 1000, text]
 	_lines.append(s)
+	if not _skip_log:
+		_log_raw(s)
 	if _lines.size() > KEEP:
 		_lines = _lines.slice(_lines.size() - KEEP)
 
@@ -183,6 +235,10 @@ func _flush(tail := "") -> void:
 
 
 func _process(delta: float) -> void:
+	# отправка прошлых журналов — когда игра уже загрузилась и работает (по реальному времени)
+	if not _upload_started and Time.get_ticks_msec() - _start_ms > 8000:
+		_upload_started = true
+		_uploader.run()
 	_t += delta
 	_flush_t += delta
 	if _dirty and _flush_t > 1.0:
@@ -192,15 +248,19 @@ func _process(delta: float) -> void:
 	if _t < 2.0:
 		return
 	_t = 0.0
+	_tick += 1
 	var state := "меню"
 	var extra := ""
 	if Game.playing and is_instance_valid(Game.player):
-		state = "бой"
+		state = "пауза" if get_tree().paused else "бой"
+		var pp: Vector3 = Game.player.global_position
+		extra = " поз=(%d,%d,%d) карта=%d" % [pp.x, pp.y, pp.z, int(Settings.data.map)]
 		var alive := 0
 		for e in Game.enemies:
 			if is_instance_valid(e) and e.alive():
 				alive += 1
-		extra = " враги=%d пули=%d hp=%d" % [alive, Game.ballistics.bullets.size() if Game.ballistics else -1, int(Game.player.hp)]
+		extra += " враги=%d пули=%d hp=%d" % [alive, Game.ballistics.bullets.size() if Game.ballistics else -1, int(Game.player.hp)]
+	_skip_log = _tick % LOG_EVERY != 1
 	# время кадра: логика и физика (Godot), подготовка и отрисовка на процессоре, на видеочипе (если драйвер отдаёт)
 	var vrid := get_viewport().get_viewport_rid()
 	if not _measure_on:
@@ -223,6 +283,7 @@ func _process(delta: float) -> void:
 		Performance.get_monitor(Performance.OBJECT_COUNT),
 		Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 		Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1000, extra + tms + _android_stats()])
+	_skip_log = false
 
 
 func _notification(what: int) -> void:
@@ -237,6 +298,9 @@ func _notification(what: int) -> void:
 				note("РАЗВЁРНУТО")
 		NOTIFICATION_WM_CLOSE_REQUEST, NOTIFICATION_PREDELETE:
 			_flush("EXIT")
+			if _slog:
+				_log_raw("EXIT")
+				_slog = null
 		NOTIFICATION_OS_MEMORY_WARNING:
 			note("!!! СИСТЕМА: МАЛО ПАМЯТИ")
 
