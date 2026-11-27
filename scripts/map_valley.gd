@@ -15,9 +15,22 @@ const HILLFORT := Vector2(330.0, 350.0)
 ## Сухое русло: с севера на юг западнее базы.
 const RIVER := [Vector2(-470, -640), Vector2(-390, -320), Vector2(-260, -130), Vector2(-232, 60), Vector2(-250, 240), Vector2(-190, 440), Vector2(-160, 640)]
 
+## Хутора вдоль дорог: c — центр, yaw — поворот (фасады смотрят в локальный +Z), half — полуразмеры площадки в локальных осях,
+## list — [тип, x, z, поворот, стрелков у окон, снайперов на крыше] в локальных осях.
+const HAMLETS := [
+	{"c": Vector2(150, 395), "yaw": 0.0, "half": Vector2(32, 17), "barriers": [[-8, 12, 0.3], [10, 13, -0.2]],
+		"list": [["house_fence", -20, -4, 0.0, 1, 0], ["ruin", 0, -6, 0.0, 1, 0], ["house", 21, -4, 0.0, 1, 0], ["shed", -6, 9, 0.0, 0, 0]]},
+	{"c": Vector2(250, -245), "yaw": 0.0, "half": Vector2(30, 16), "barriers": [[10, 13, 0.4]],
+		"list": [["house2", -18, -2, 0.0, 2, 1], ["ruin", 3, -4, 0.2, 1, 0], ["house_east", 21, -2, 0.0, 1, 0], ["garages", 2, 10, 0.0, 1, 0]]},
+	{"c": Vector2(-150, -215), "yaw": PI * 0.5, "half": Vector2(32, 17), "barriers": [[-6, 12, 0.5]],
+		"list": [["house_fence", -20, -4, 0.0, 1, 0], ["ruin", 1, -5, 0.0, 1, 0], ["house2", 22, -3, 0.0, 2, 1], ["shed", -4, 9, 0.0, 0, 0]]},
+]
+
 var radar_dish: Node3D
 var radar_alive := true
 var fuel_node: MeshInstance3D
+var antenna_node: MeshInstance3D
+var antenna_lamp: MeshInstance3D
 var radar_node: MeshInstance3D
 var noise_c := FastNoiseLite.new()
 
@@ -38,7 +51,8 @@ func _configure() -> void:
 	orbit_radius = 140.0
 	orbit_height = 40.0
 	site_points = [Vector3(CHECKPOINT.x, CHECKPOINT.y, 0), Vector3(RADAR.x, RADAR.y, 0), Vector3(LZ.x, LZ.y, 0), Vector3(SPAWN.x, SPAWN.y, 0),
-		Vector3(VILLAGE.x, VILLAGE.y, 90), Vector3(FARM.x, FARM.y, 60), Vector3(QUARRY.x, QUARRY.y, 60), Vector3(HILLFORT.x, HILLFORT.y, 20)]
+		Vector3(VILLAGE.x, VILLAGE.y, 90), Vector3(FARM.x, FARM.y, 60), Vector3(QUARRY.x, QUARRY.y, 60), Vector3(HILLFORT.x, HILLFORT.y, 20),
+		Vector3(150, 395, 40), Vector3(250, -245, 40), Vector3(-150, -215, 40)]
 
 
 func _setup_noise() -> void:
@@ -61,6 +75,7 @@ func _build_sites() -> void:
 	await get_tree().process_frame
 	_build_quarry()
 	_build_hillfort()
+	_build_hamlets()
 	blast_fx["fuel"] = {"fires": [[Vector3(-5, 0.5, -4), 1.5], [Vector3(5, 0.5, -4), 1.5], [Vector3(0, 0.5, -6), 1.5]],
 		"blasts": [[0.5, Vector3(-5, 1, -4)], [1.1, Vector3(5, 1, -5)]]}
 	_define_vehicles()
@@ -74,6 +89,7 @@ func mission_objectives() -> Array:
 		{"id": "radar", "title": "Уничтожить РЛС на холме", "pos": objectives.radar, "done": false, "prompt": "Установить заряд", "hold": 2.5, "armed": false},
 		{"id": "fuel", "title": "Подорвать топливный склад", "pos": objectives.fuel, "done": false, "prompt": "Установить заряд", "hold": 2.5, "armed": false},
 		{"id": "intel", "title": "Забрать разведданные в штабе", "pos": objectives.intel, "done": false, "prompt": "Забрать разведданные", "hold": 1.2, "armed": false},
+		{"id": "antenna", "title": "Подорвать мачту связи на базе", "pos": objectives.antenna, "done": false, "prompt": "Установить заряд", "hold": 2.5, "armed": false},
 		{"id": "depot", "title": "Взорвать склад взрывчатки в карьере", "pos": objectives.depot, "done": false, "prompt": "Установить заряд", "hold": 2.5, "armed": false},
 		{"id": "lz", "title": "Выйти к точке эвакуации", "pos": objectives.lz, "done": false, "locked": true, "prompt": "", "hold": 0.0, "armed": false},
 	]
@@ -81,7 +97,7 @@ func mission_objectives() -> Array:
 
 func briefing() -> String:
 	return "Противник развернул в долине опорную базу и держит окрестные посёлки. Вы высаживаетесь на краю долины.\n\n" \
-		+ "• Уничтожить РЛС на холме северо-западнее базы\n• Подорвать топливный склад на базе\n" \
+		+ "• Уничтожить РЛС на холме северо-западнее базы\n• Подорвать топливный склад на базе и мачту связи у штаба\n" \
 		+ "• Забрать разведданные на втором этаже штаба\n• Взорвать склад взрывчатки в карьере на севере\n" \
 		+ "• Выйти к точке эвакуации в северо-восточном углу долины\n\nВ деревне на востоке, в колхозе и на высоте — гарнизоны противника."
 
@@ -96,7 +112,12 @@ func bench_views() -> Array:
 		["колхоз", Vector3(-250, 0, 230), Vector3(-320, 6, 290)],
 		["карьер сверху", Vector3(-40, 0, -300), Vector3(-40, -8, -410)],
 		["высота", Vector3(260, 0, 290), Vector3(330, 4, 350)],
-		["горизонт с холма", Vector3(-118, 0, -70), Vector3(300, 20, 300)]]
+		["горизонт с холма", Vector3(-118, 0, -70), Vector3(300, 20, 300)],
+		["деревня, сельсовет", Vector3(300, 0, 36), Vector3(303, 3, 57)],
+		["деревня, дома с севера", Vector3(300, 0, 44), Vector3(270, 3, 23)],
+		["хутор у перекрёстка", Vector3(125, 0, 432), Vector3(150, 3, 395)],
+		["мачта связи", Vector3(-17, 0, -36), Vector3(-17, 8, -53)],
+		["казарма-блок", Vector3(26, 0, -30), Vector3(26, 5, -50)]]
 
 
 ## Доля «утоптанной земли» в точке (двор базы, улица деревни, двор колхоза, дно карьера).
@@ -156,6 +177,12 @@ func _setup_pads() -> void:
 		{"c": QUARRY, "half": Vector2(42, 30), "m": 28.0, "h": base_height(QUARRY.x, QUARRY.y) - 13.0},
 		{"c": HILLFORT, "half": Vector2(16, 14), "m": 22.0, "h": base_height(HILLFORT.x, HILLFORT.y)},
 	]
+	for hm in HAMLETS:
+		var hc: Vector2 = hm.c
+		var hh: Vector2 = hm.half
+		if absf(sin(float(hm.yaw))) > 0.5:
+			hh = Vector2(hh.y, hh.x)
+		pads.append({"c": hc, "half": hh, "m": 20.0, "h": base_height(hc.x, hc.y)})
 
 
 func base_height(x: float, z: float) -> float:
@@ -189,35 +216,6 @@ func base_height(x: float, z: float) -> float:
 	return h
 
 
-## Дом-заглушка: коробка с проёмами и двускатной крышей (позже — Bld).
-func _house(g: Geo, cx: float, cz: float, w: float, d: float, floors: int, mat: String, door_side: String) -> void:
-	var y := _ground_min(cx, cz, maxf(w, d) * 0.5) - 0.05
-	var h := 2.9
-	var ops := {"s": [win(1.0), win(w - 2.3)], "n": [win(1.0), win(w - 2.3)], "e": [win(d * 0.5 - 0.65)], "w": [win(d * 0.5 - 0.65)]}
-	var dl: Array = ops[door_side]
-	if door_side == "s" or door_side == "n":
-		dl.append(door(w * 0.5 - 0.6, 1.2))
-	else:
-		ops[door_side] = [door(d * 0.5 - 0.6, 1.2)]
-	_building(g, cx, cz, w, d, h, mat, ops, y, "floor", 0.3, true, floors == 1)
-	if floors > 1:
-		g.box("floor", Vector3(cx + 0.9, y + h, cz), Vector3(w - 2.4, 0.2, d - 0.6))
-		g.stairs("floor", Vector3(cx - w * 0.5 + 0.95, y, cz + d * 0.5 - 0.6), 0.0, 1.0, h, minf(d - 1.4, 4.6))
-		_building(g, cx, cz, w, d, h, mat, {"s": [win(1.0), win(w - 2.3)], "n": [win(1.0), win(w - 2.3)]}, y + h, "concrete", 0.3, false, true)
-		return
-	# двускатная крыша из двух наклонных плит
-	var rh := 1.6
-	var ang := atan2(rh, d * 0.5 + 0.4)
-	var slab := Vector3(w + 0.6, 0.12, (d * 0.5 + 0.5) / cos(ang))
-	for s in [-1.0, 1.0]:
-		g.box("rust", Vector3(cx, y + h + 0.2 + rh * 0.5, cz + s * (d * 0.25 + 0.12)), slab, 0.0, false, -s * ang)
-	# фронтоны
-	for sx in [-1.0, 1.0]:
-		for k in 3:
-			var hh := rh * (1.0 - k / 3.0)
-			g.box(mat, Vector3(cx + sx * (w * 0.5 - 0.15), y + h + 0.2 + rh * k / 3.0 + rh / 6.0, cz), Vector3(0.3, rh / 3.0, (d - 0.3) * hh / rh), 0.0, false)
-
-
 ## Стоянки машин и патрули на дорогах (сами машины ставит Level.spawn_vehicles при старте миссии).
 func _define_vehicles() -> void:
 	var c := CHECKPOINT
@@ -246,51 +244,130 @@ func _define_vehicles() -> void:
 	vehicle_patrols = [[1, 2], [3, 3], [4, 2], [0, 2]]
 
 
+# ------------------------------------------------------------------ здания Bld и гарнизоны
+var _gr := RandomNumberGenerator.new()
+## Точки ИИ всех зданий Bld (для отладки и проверки): [{kind, info, out}]
+var bld_log: Array = []
+
+
+## Здание Bld в общий Geo района: ставится на самую низкую точку пятна, внешние укрытия отдаются ботам.
+func _bld(g: Geo, kind: String, x: float, z: float, yaw: float, opt := {}, out := {}) -> Dictionary:
+	var y := _ground_min(x, z, 6.0) - 0.15
+	var p := Vector3(x, y, z)
+	var info: Dictionary
+	match kind:
+		"house":
+			info = Bld.house(g, rng, p, yaw, out, opt)
+		"house_fence":
+			info = Bld.house(g, rng, p, yaw, out, {"fence": true})
+		"house_east":
+			info = Bld.house(g, rng, p, yaw, out, {"east": true})
+		"house2":
+			info = Bld.house2(g, rng, p, yaw, out, opt)
+		"block":
+			info = Bld.block(g, rng, p, yaw, out, opt)
+		"shop":
+			info = Bld.shop(g, rng, p, yaw, out, {"cafe": false})
+		"cafe":
+			info = Bld.shop(g, rng, p, yaw, out, {"cafe": true})
+		"warehouse":
+			info = Bld.warehouse(g, rng, p, yaw, out, opt)
+		"garages":
+			info = Bld.garages(g, rng, p, yaw, out, opt)
+		"shed":
+			info = Bld.shed(g, rng, p, yaw, out, opt)
+		"booth":
+			info = Bld.booth(g, rng, p, yaw, out, opt)
+		"hq":
+			info = Bld.hq(g, rng, p, yaw, out, opt)
+		"ruin":
+			info = Bld.ruin(g, rng, p, yaw, out, opt)
+		_:
+			push_warning("_bld: неизвестный тип " + kind)
+			return {}
+	for c in out.get("cover", []):
+		cover_points.append(c)
+	bld_log.append({"kind": kind, "info": info, "out": out})
+	return info
+
+
+## Дальний район исчезает за d м (умножается на настройку дальности): вызовы отрисовки не тратятся на далёкие кварталы.
+func _far(mi: MeshInstance3D, d: float) -> void:
+	mi.visibility_range_end = d
+	mi.visibility_range_end_margin = 20.0
+	veg_ranges.append([mi, d])
+
+
+## Гарнизон здания: стрелки у окон (стоят на месте), караульные внутри, снайпер на крыше, пост у двери.
+func _garrison(out: Dictionary, info: Dictionary, fire_n: int, inside_n := 0, roof_n := 0, door_n := 0) -> void:
+	if info.is_empty():
+		return
+	var ctr: Vector3 = info.pos
+	var fire: Array = (out.get("fire", []) as Array).duplicate()
+	for i in range(fire.size() - 1, 0, -1):
+		var j := _gr.randi() % (i + 1)
+		var tmp = fire[i]
+		fire[i] = fire[j]
+		fire[j] = tmp
+	for i in mini(fire_n, fire.size()):
+		var p: Vector3 = fire[i]
+		_e_face(p, p - ctr, 1 if i % 3 == 2 else 0, true)
+	var ins: Array = out.get("inside", [])
+	for i in mini(inside_n, ins.size()):
+		var p2: Vector3 = ins[i]
+		_e(p2.x, p2.z, _gr.randf() * 360.0, 0, [], p2.y, false)
+	var roof: Array = out.get("roof", [])
+	for i in mini(roof_n, roof.size()):
+		var p3: Vector3 = roof[_gr.randi() % roof.size()]
+		_e_face(p3, p3 - ctr, 2, true)
+	var doors: Array = out.get("doors", [])
+	for i in mini(door_n, doors.size()):
+		var p4: Vector3 = doors[i]
+		_e_face(p4, p4 - ctr, 0, false)
+
+
+func _e_face(p: Vector3, dir: Vector3, kind: int, hold: bool) -> void:
+	_e(p.x, p.z, rad_to_deg(atan2(-dir.x, -dir.z)), kind, [], p.y, hold)
+
+
 # ------------------------------------------------------------------ деревня Каменка (восток)
 func _build_village() -> void:
 	var g := Geo.new()
 	var c := VILLAGE
 	var saved := rng.state
 	rng.seed = 7301
-	var mats := ["plaster", "plaster_tan", "plaster", "wood"]
-	for side: float in [-1.0, 1.0]:
-		for i in 6:
-			var x := c.x - 82.0 + i * 31.0 + rng.randf_range(-3.0, 3.0)
-			if side > 0.0 and i == 2:
-				continue
-			var z := c.y + side * 15.0
-			var w := rng.randf_range(7.0, 9.5)
-			var d := rng.randf_range(6.5, 8.0)
-			var floors := 2 if rng.randf() < 0.25 else 1
-			_house(g, x, z, w, d, floors, mats[rng.randi() % mats.size()], "s" if side < 0.0 else "n")
-			# сарай во дворе и забор
-			var by := _ground_min(x + 5.0, z + side * 12.0, 2.0)
-			_building(g, x + 5.0, z + side * 12.0, 3.4, 3.0, 2.3, "wood", {"w": [door(0.8, 1.2)]}, by, "iron", 0.12)
-			for k in [-1.0, 1.0]:
-				_fence(g, Vector2(x + k * 7.5, z - side * 5.5), Vector2(x + k * 7.5, z + side * 17.0), ground(x + k * 7.5, z) - 0.05, 1.6)
-			for k in 4:
-				cover(x + rng.randf_range(-5, 5), z - side * 6.5)
-	# сельсовет — 2 этажа, укреплён (гарнизон)
-	var sx := c.x - 20.0
-	var sz := c.y + 15.0
-	var sy := _ground_min(sx, sz, 8.0)
-	_building(g, sx, sz, 14, 10, 3.2, "plaster_tan", {"n": [win(1.5), door(6.2), win(10.5)], "s": [win(2.0), win(7.0), win(11.0)], "e": [win(4.0)], "w": [win(4.0)]}, sy, "floor", 0.3, true, false)
-	g.box("floor", Vector3(sx + 1.0, sy + 3.1, sz), Vector3(11.8, 0.2, 10))
-	g.stairs("floor", Vector3(sx - 6.2, sy, sz + 4.2), 0.0, 1.2, 3.2, 4.6)
-	_building(g, sx, sz, 14, 10, 3.0, "plaster_tan", {"n": [win(1.5), win(6.2), win(10.5)], "s": [win(2.0), win(7.0), win(11.0)], "e": [win(4.0)], "w": [win(4.0)]}, sy + 3.2, "concrete", 0.3, false, true)
-	_sandbags(g, Vector2(sx - 4.0, sz - 7.5), Vector2(sx + 4.0, sz - 7.5), sy)
-	_ammo_crate(sx + 4.5, sz + 2.5, sy + 0.08, 0.3)
-	# магазин у дороги
-	var mx := c.x + 40.0
-	var mz := c.y - 15.0
-	_building(g, mx, mz, 10, 7, 3.2, "plaster", {"s": [[1.0, 4.0, 0.6, 2.6], door(5.0, 1.4), [7.0, 9.2, 0.6, 2.6]], "n": [door(4.4, 1.2)]}, _ground_min(mx, mz, 5.0), "concrete")
+	_gr.seed = 7302
+	# север улицы — фасадом на юг (yaw 0), юг — фасадом на север (yaw PI); сдвиги по оси улицы
+	var north := [[-80.0, "house_fence"], [-58.0, "house2"], [-36.0, "ruin"], [-12.0, "cafe"], [12.0, "shop"], [36.0, "block"], [62.0, "house_east"], [84.0, "house_fence"]]
+	var south := [[-80.0, "house"], [-58.0, "house_fence"], [-32.0, "hq"], [16.0, "house2"], [40.0, "garages"], [62.0, "house_fence"], [84.0, "house_east"]]
+	var garr := {"house_fence": [1, 0, 0, 0], "house": [1, 0, 0, 0], "house2": [2, 0, 1, 0], "ruin": [1, 0, 0, 0], "cafe": [2, 0, 0, 0],
+		"shop": [1, 0, 0, 1], "block": [4, 0, 1, 0], "house_east": [1, 0, 0, 0], "hq": [4, 1, 1, 1], "garages": [1, 0, 0, 0]}
+	for side in 2:
+		var lst: Array = north if side == 0 else south
+		var zz := c.y - 17.0 if side == 0 else c.y + 17.0
+		var yaw := 0.0 if side == 0 else PI
+		for it in lst:
+			var kind: String = it[1]
+			var out := {}
+			var opt := {}
+			if kind == "block":
+				opt = {"floors": 3}
+			var info := _bld(g, kind, c.x + float(it[0]), zz, yaw, opt, out)
+			var gp: Array = garr.get(kind, [0, 0, 0, 0])
+			_garrison(out, info, gp[0], gp[1], gp[2], gp[3])
+			if kind == "hq":
+				_sandbags(g, Vector2(c.x - 48.0, c.y + 8.0), Vector2(c.x - 42.0, c.y + 8.0), float(info.pos.y))
+	# сарайчики на задворках у сельсовета и магазина
+	_bld(g, "shed", c.x - 60.0, c.y + 28.0, PI)
+	_bld(g, "shed", c.x + 14.0, c.y - 29.0, 0.0, {"iron": true})
 	# брошенная техника и баррикады на улице
 	_truck(g, c.x - 50.0, c.y + 2.0, 1.45, ground(c.x - 50.0, c.y + 2.0) - 0.05)
 	_wreck(g, c.x + 70.0, c.y - 3.0, 1.2)
 	for b in [[c.x - 35.0, c.y - 2.0, 1.3], [c.x + 12.0, c.y + 3.0, 1.7], [c.x + 58.0, c.y + 1.0, 1.5]]:
 		_barrier(g, b[0], b[1], b[2], ground(b[0], b[1]) - 0.05)
 	_barrels(c.x + 25.0, c.y + 6.0, 3, ground(c.x + 25.0, c.y + 6.0))
-	g.finish(self, "village")
+	_ammo_crate(c.x - 44.0, c.y + 10.5, ground(c.x - 44.0, c.y + 10.5), 0.3)
+	_far(g.finish(self, "village"), 480.0)
 	rng.state = saved
 
 
@@ -299,6 +376,9 @@ func _build_farm() -> void:
 	var g := Geo.new()
 	var c := FARM
 	var y: float = pads[6].h
+	var saved := rng.state
+	rng.seed = 8402
+	_gr.seed = 8403
 	# элеватор: 4 силоса и башня
 	for i in 4:
 		var sx := c.x - 30.0 + i * 7.6
@@ -307,25 +387,35 @@ func _build_farm() -> void:
 	g.box("concrete", Vector3(c.x + 3.0, y + 12.0, c.y - 28.0), Vector3(7.0, 24.0, 7.0))
 	g.box("iron", Vector3(c.x + 3.0, y + 25.0, c.y - 28.0), Vector3(7.6, 2.0, 7.6))
 	g.box("rust", Vector3(c.x - 11.0, y + 19.5, c.y - 28.0), Vector3(30.0, 1.2, 1.4), 0.0, false)
-	# коровники/склады из профлиста
-	_building(g, c.x - 22.0, c.y + 4.0, 30, 11, 4.2, "iron", {"e": [[2.5, 8.5, 0.0, 3.6]], "w": [[2.5, 8.5, 0.0, 3.6]], "n": [win(5.0, 2.0), win(13.0, 2.0), win(21.0, 2.0)], "s": [door(14.0, 1.6)]}, y, "iron", 0.14)
-	_building(g, c.x + 24.0, c.y + 6.0, 22, 12, 5.0, "iron", {"w": [[3.0, 9.0, 0.0, 4.2]], "n": [door(10.0, 1.6)]}, y, "iron", 0.14)
-	# контора
-	_building(g, c.x + 28.0, c.y - 18.0, 9, 7, 3.0, "plaster", {"s": [win(1.0), door(4.0, 1.2), win(6.5)], "n": [win(1.5), win(6.0)]}, y, "concrete")
-	_ammo_crate(c.x + 30.0, c.y - 19.0, y + 0.08, 1.0)
+	# коровники/склады: ангары Bld, контора, сараи, гаражи
+	var o1 := {}
+	var i1 := _bld(g, "warehouse", c.x - 22.0, c.y + 4.0, 0.0, {"w": 26.0, "d": 11.0}, o1)
+	_garrison(o1, i1, 3, 1, 0, 0)
+	var o2 := {}
+	var i2 := _bld(g, "warehouse", c.x + 26.0, c.y + 5.0, PI * 0.5, {"w": 18.0, "d": 11.0}, o2)
+	_garrison(o2, i2, 2, 0, 0, 0)
+	var o3 := {}
+	var i3 := _bld(g, "house2", c.x + 28.0, c.y - 15.0, 0.0, {"east": false}, o3)
+	_garrison(o3, i3, 2, 0, 1, 0)
+	_ammo_crate(c.x + 30.0, c.y - 19.0, y + 0.5, 1.0)
+	_bld(g, "shed", c.x - 44.0, c.y - 8.0, PI * 0.5, {"iron": true})
+	var o4 := {}
+	var i4 := _bld(g, "garages", c.x + 4.0, c.y + 25.0, PI, {"count": 3}, o4)
+	_garrison(o4, i4, 1, 0, 0, 0)
 	# техника, стога, укрытия
-	_truck(g, c.x + 5.0, c.y + 22.0, 0.3, y)
-	_truck(g, c.x - 40.0, c.y - 12.0, 1.8, y)
+	_truck(g, c.x + 5.0, c.y + 14.0, 0.3, y)
+	_truck(g, c.x - 40.0, c.y - 20.0, 1.8, y)
 	_wreck(g, c.x + 8.0, c.y - 10.0, 0.6)
 	for k in 5:
 		g.cyl("canvas", Transform3D(Basis(Vector3.FORWARD, PI * 0.5), Vector3(c.x - 45.0 + k * 3.0, y + 0.9, c.y + 30.0)), 0.9, 1.6, 10)
-	for b in [[c.x - 5.0, c.y - 5.0, 0.2], [c.x + 14.0, c.y + 14.0, 1.4], [c.x - 38.0, c.y + 20.0, 0.0]]:
+	for b in [[c.x - 5.0, c.y - 5.0, 0.2], [c.x + 14.0, c.y + 18.0, 1.4], [c.x - 38.0, c.y + 20.0, 0.0]]:
 		_barrier(g, b[0], b[1], b[2], y)
 	_sandbags(g, Vector2(c.x + 40.0, c.y - 30.0), Vector2(c.x + 46.0, c.y - 24.0), y)
 	_barrels(c.x + 16.0, c.y - 22.0, 4, y)
 	_crate(g, c.x - 6.0, c.y + 12.0, 1.2, 0.3, y)
 	_crate(g, c.x - 4.6, c.y + 12.3, 1.1, -0.2, y)
-	g.finish(self, "farm")
+	_far(g.finish(self, "farm"), 380.0)
+	rng.state = saved
 
 
 # ------------------------------------------------------------------ карьер со складом взрывчатки (север)
@@ -333,6 +423,9 @@ func _build_quarry() -> void:
 	var g := Geo.new()
 	var c := QUARRY
 	var y: float = pads[7].h
+	var saved := rng.state
+	rng.seed = 9503
+	_gr.seed = 9504
 	# дробилка на опорах и конвейер к отвалу
 	for sx in [-3.0, 3.0]:
 		for sz in [-3.0, 3.0]:
@@ -359,8 +452,20 @@ func _build_quarry() -> void:
 	_barrels(c.x - 26.0, c.y + 4.0, 4, y)
 	for b in [[c.x + 6.0, c.y + 4.0, 0.3], [c.x - 10.0, c.y + 22.0, 1.2], [c.x + 26.0, c.y + 10.0, 0.8]]:
 		_barrier(g, b[0], b[1], b[2], y)
+	# конторка со столовой, КПП на въезде, гаражи техники, сарай
+	var o1 := {}
+	var i1 := _bld(g, "house", c.x + 30.0, c.y + 3.0, 0.0, {}, o1)
+	_garrison(o1, i1, 2, 0, 0, 0)
+	var o2 := {}
+	var i2 := _bld(g, "booth", c.x - 4.0, c.y + 27.0, PI * 0.5, {"boom": true}, o2)
+	_garrison(o2, i2, 1, 0, 0, 0)
+	var o3 := {}
+	_bld(g, "garages", c.x + 32.0, c.y + 22.0, 0.0, {"count": 2}, o3)
+	_bld(g, "shed", c.x - 34.0, c.y + 14.0, PI * 0.5, {"iron": true})
 	var dep := g.finish(self, "quarry")
+	_far(dep, 380.0)
 	_burn["depot"] = [dep]
+	rng.state = saved
 
 
 # ------------------------------------------------------------------ укреплённая высота (юго-восток)
@@ -379,7 +484,32 @@ func _build_hillfort() -> void:
 	_tower(g, c.x + 8.0, c.y + 6.0, false, y)
 	_ammo_crate(c.x - 4.0, c.y + 3.0, y + 0.08, 0.8)
 	_crate(g, c.x + 3.0, c.y + 4.0, 1.2, 0.4, y)
-	g.finish(self, "hillfort")
+	_far(g.finish(self, "hillfort"), 350.0)
+
+
+# ------------------------------------------------------------------ хутора вдоль дорог
+## Три небольших посёлка с руинами и жилыми домами: нейтральные места для боёв между главными районами.
+func _build_hamlets() -> void:
+	var saved := rng.state
+	for hi in HAMLETS.size():
+		var h: Dictionary = HAMLETS[hi]
+		var c: Vector2 = h.c
+		var yaw: float = h.yaw
+		rng.seed = 6100 + hi
+		_gr.seed = 6200 + hi
+		var g := Geo.new()
+		var basis := Basis(Vector3.UP, yaw)
+		var list: Array = h.list
+		for it in list:
+			var off := basis * Vector3(float(it[1]), 0, float(it[2]))
+			var out := {}
+			var info := _bld(g, String(it[0]), c.x + off.x, c.y + off.z, yaw + float(it[3]), {}, out)
+			_garrison(out, info, int(it[4]), 0, int(it[5]), 0)
+		for b in h.get("barriers", []):
+			var bo := basis * Vector3(float(b[0]), 0, float(b[1]))
+			_barrier(g, c.x + bo.x, c.y + bo.z, yaw + float(b[2]), ground(c.x + bo.x, c.y + bo.z) - 0.05)
+		_far(g.finish(self, "hamlet_%d" % hi), 330.0)
+	rng.state = saved
 
 
 ## Опорные точки на подходах к базе (90–130 м от центра): мешки с песком, бетонные блоки, руины стен
@@ -486,16 +616,23 @@ func _build_compound() -> void:
 	_make_intel(Vector3(-24.2, y + 3.99, -44.5))
 	# дополнительные ящики с боеприпасами: штаб, казармы, двор
 	_ammo_crate(-25.0, -38.2, y + 0.08, 0.2)
-	_ammo_crate(33.0, -50.5, y + 0.08, 1.6)
-	_ammo_crate(-43.5, 11.5, y + 0.08, 0.0)
+	_ammo_crate(38.0, -41.5, y + 0.08, 1.6)
+	_ammo_crate(-37.0, 11.5, y + 0.08, 0.0)
 	for lp in [[-8.0, 44.0, 0.0], [20.0, -30.0, 1.57], [-40.0, -30.0, -1.57], [52.0, 10.0, 3.14], [-20.0, 16.0, 0.0], [34.0, 46.0, 3.14]]:
 		_lamp(g, lp[0], lp[1], y, lp[2])
 
 	# --- казармы, склад, гараж, караулка
-	_building(g, 26, -48, 18, 8, 3.0, "plaster", {"s": [door(3.0), win(6.5), win(9.5), door(13.0), win(15.5)], "n": [win(3.0), win(8.0), win(13.0)]})
-	_building(g, -46, 6, 8, 16, 3.0, "plaster", {"e": [win(2.5), door(7.0), win(11.5)], "w": [win(3.0), win(11.0)]})
+	var bs := rng.state
+	rng.seed = 4401
+	_gr.seed = 4402
+	var ob := {}
+	var ib := _bld(g, "block", 26.0, -50.0, 0.0, {"floors": 3}, ob)
+	_garrison(ob, ib, 3, 0, 1, 0)
+	var ob2 := {}
+	var ib2 := _bld(g, "house2", -46.0, 6.0, PI * 0.5, {"east": false}, ob2)
+	_garrison(ob2, ib2, 2, 0, 0, 0)
 	_building(g, 38, 22, 20, 14, 5.5, "iron", {"w": [[4.5, 9.5, 0.0, 4.0]], "n": [door(15.0)], "s": [[3.0, 5.0, 3.0, 4.2], [14.0, 16.0, 3.0, 4.2]]}, y, "iron", 0.14)
-	_building(g, 11, 44, 4, 4, 2.7, "plaster_tan", {"w": [door(1.3, 1.4)], "s": [win(1.3)], "n": [win(1.3)]})
+	_bld(g, "booth", 9.0, 44.0, -PI * 0.5, {"boom": false})
 	g.box("floor", Vector3(-18, y + 0.04, 28), Vector3(12, 0.08, 8))
 	g.wall("iron", Vector3(-24, y, 24), Vector3(-12, y, 24), 3.5, 0.14)
 	g.wall("iron", Vector3(-24, y, 24), Vector3(-24, y, 32), 3.5, 0.14)
@@ -503,8 +640,9 @@ func _build_compound() -> void:
 	g.box("iron", Vector3(-18, y + 3.6, 28.2), Vector3(12.6, 0.1, 8.8), 0.0, true, -0.05)
 	for px in [-24.0, -18.0, -12.0]:
 		g.box("rust", Vector3(px, y + 1.75, 32), Vector3(0.16, 3.5, 0.16))
-	for sp in [[-56.0, 20.0], [58.0, 6.0]]:
-		_building(g, sp[0], sp[1], 2.2, 2.2, 2.4, "iron", {"s": [door(0.5, 1.0)]}, y, "iron", 0.1)
+	_bld(g, "shed", -56.0, 20.0, PI * 0.5, {"iron": true})
+	_bld(g, "shed", 58.0, 6.0, -PI * 0.5)
+	rng.state = bs
 
 	# --- склад внутри
 	for i in 4:
@@ -537,18 +675,22 @@ func _build_compound() -> void:
 	_prop("propane_tank", Vector3(52.0, y + 0.2, -12.3), 0.4, "cyl", "metal")
 	_prop("propane_tank", Vector3(52.6, y + 0.2, -12.6), 1.4, "cyl", "metal")
 
-	# --- мачта связи
+	# --- мачта связи (цель «antenna»)
+	var mg := Geo.new()
 	for sx in [-0.5, 0.5]:
 		for sz in [-0.5, 0.5]:
-			g.box("rust", Vector3(-17.0 + sx, y + 8.0, -53.0 + sz), Vector3(0.1, 16.0, 0.1), 0.0, false)
+			mg.box("rust", Vector3(-17.0 + sx, y + 8.0, -53.0 + sz), Vector3(0.1, 16.0, 0.1), 0.0, false)
 	for i in 8:
 		var by := y + 1.0 + i * 2.0
-		g.box("rust", Vector3(-17.0, by, -53.5), Vector3(1.5, 0.06, 0.06), 0.0, false, 0.0, 0.9 if i % 2 == 0 else -0.9)
-		g.box("rust", Vector3(-17.0, by, -52.5), Vector3(1.5, 0.06, 0.06), 0.0, false, 0.0, -0.9 if i % 2 == 0 else 0.9)
-		g.box("rust", Vector3(-17.5, by, -53.0), Vector3(0.06, 0.06, 1.5), 0.0, false, 0.9 if i % 2 == 0 else -0.9)
-		g.box("rust", Vector3(-16.5, by, -53.0), Vector3(0.06, 0.06, 1.5), 0.0, false, -0.9 if i % 2 == 0 else 0.9)
-	g.collider("metal", Transform3D(Basis(), Vector3(-17.0, y + 8.0, -53.0)), Vector3(1.1, 16.0, 1.1))
-	g.box("floor", Vector3(-17.0, y + 0.1, -53.0), Vector3(2.2, 0.2, 2.2))
+		mg.box("rust", Vector3(-17.0, by, -53.5), Vector3(1.5, 0.06, 0.06), 0.0, false, 0.0, 0.9 if i % 2 == 0 else -0.9)
+		mg.box("rust", Vector3(-17.0, by, -52.5), Vector3(1.5, 0.06, 0.06), 0.0, false, 0.0, -0.9 if i % 2 == 0 else 0.9)
+		mg.box("rust", Vector3(-17.5, by, -53.0), Vector3(0.06, 0.06, 1.5), 0.0, false, 0.9 if i % 2 == 0 else -0.9)
+		mg.box("rust", Vector3(-16.5, by, -53.0), Vector3(0.06, 0.06, 1.5), 0.0, false, -0.9 if i % 2 == 0 else 0.9)
+	mg.collider("metal", Transform3D(Basis(), Vector3(-17.0, y + 8.0, -53.0)), Vector3(1.1, 16.0, 1.1))
+	mg.box("floor", Vector3(-17.0, y + 0.1, -53.0), Vector3(2.2, 0.2, 2.2))
+	antenna_node = mg.finish(self, "antenna")
+	objectives["antenna"] = Vector3(-17.0, y + 1.2, -51.2)
+	blast_fx["antenna"] = {"fires": [[Vector3(0, 0.4, 0), 1.6], [Vector3(1.5, 0.3, -1), 1.2]], "blasts": [[0.5, Vector3(0, 2, 0)], [1.2, Vector3(-1, 3, 1)]]}
 	var lamp := MeshInstance3D.new()
 	var ls := SphereMesh.new()
 	ls.radius = 0.12
@@ -557,6 +699,7 @@ func _build_compound() -> void:
 	lamp.material_override = Mats.emissive(Color(1, 0.1, 0.05), 3.0)
 	lamp.position = Vector3(-17.0, y + 16.2, -53.0)
 	add_child(lamp)
+	antenna_lamp = lamp
 
 	# --- контейнеры, техника, укрытия
 	_container(g, 10.0, -20.0, 0.2, "container", y)
@@ -615,11 +758,18 @@ func _build_checkpoint() -> void:
 	_sandbags(g, Vector2(c.x + 5.0, c.y + 6.0), Vector2(c.x + 9.5, c.y + 6.0), y)
 	_sandbags(g, Vector2(c.x + 9.5, c.y + 6.0), Vector2(c.x + 9.5, c.y + 2.5), y)
 	_sandbags(g, Vector2(c.x - 9.0, c.y + 3.0), Vector2(c.x - 5.0, c.y + 4.5), y)
-	_building(g, c.x + 8.0, c.y - 5.0, 3.6, 3.6, 2.5, "wood", {"w": [door(1.1, 1.4)], "s": [win(1.1)], "n": [win(1.1)]}, y, "iron", 0.12)
+	var saved := rng.state
+	rng.seed = 3301
+	_gr.seed = 3302
+	var ob := {}
+	var ib := _bld(g, "booth", c.x + 8.0, c.y - 5.0, -PI * 0.5, {"boom": false}, ob)
+	_garrison(ob, ib, 1, 0, 0, 0)
+	_bld(g, "shed", c.x + 15.0, c.y - 9.0, -PI * 0.5)
+	rng.state = saved
 	_barrels(c.x - 7.0, c.y - 3.0, 3, y)
 	_crate(g, c.x + 4.6, c.y - 8.5, 1.2, 0.3, y)
-	_prop("old_military_crate", Vector3(c.x + 8.6, y + 0.08, c.y - 4.4), 0.1, "box", "wood")
-	ammo_points.append(Vector3(c.x + 8.6, y + 0.5, c.y - 4.4))
+	_prop("old_military_crate", Vector3(c.x + 11.5, y + 0.08, c.y - 1.8), 0.1, "box", "wood")
+	ammo_points.append(Vector3(c.x + 11.5, y + 0.5, c.y - 1.8))
 	# шлагбаум
 	g.box("rust", Vector3(c.x - 4.2, y + 0.6, c.y + 1.5), Vector3(0.2, 1.2, 0.2))
 	g.box("#c8c2b4", Vector3(c.x - 0.6, y + 1.9, c.y + 1.5), Vector3(7.5, 0.1, 0.1), 0.0, false, 0.0, 0.38)
@@ -706,6 +856,9 @@ func destroy_objective(key: String) -> void:
 		radar_node.material_override = burnt
 	elif key == "fuel":
 		fuel_node.material_override = burnt
+	elif key == "antenna":
+		antenna_node.material_override = burnt
+		antenna_lamp.visible = false
 	elif key == "intel":
 		intel_node.visible = false
 	for n in _burn.get(key, []):
@@ -753,25 +906,24 @@ func _define_enemies() -> void:
 	_e(-80.0, 14.0, 0, 0, [[-80.0, 14.0], [-96.0, -24.0], [-104.0, -56.0], [-96.0, -24.0]])
 	_e(LZ.x - 9.0, LZ.y + 7.0, 160)
 	_e(LZ.x + 8.0, LZ.y - 8.0, 200, 1)
-	# деревня: гарнизон в сельсовете, посты на въездах, патруль по улице
+	# деревня: посты на въездах и во дворах, патрули по улице (гарнизоны домов — в _build_village из точек Bld)
 	var v := VILLAGE
-	_e(v.x - 20.0, v.y + 8.0, 0)
-	_e(v.x - 23.0, v.y + 17.0, 180)
-	_e(v.x - 18.0, v.y + 14.0, 0, 2, [], _ground_min(v.x - 20.0, v.y + 15.0, 8.0) + 3.3, true)
-	_e(v.x - 92.0, v.y + 2.0, -90)
-	_e(v.x - 90.0, v.y - 3.0, -90, 1)
-	_e(v.x + 88.0, v.y + 3.0, 90)
-	_e(v.x + 40.0, v.y - 9.0, 180)
-	_e(v.x + 10.0, v.y - 22.0, 160)
-	_e(v.x - 60.0, v.y + 22.0, 20)
+	_e(v.x - 96.0, v.y + 2.0, -90)
+	_e(v.x - 94.0, v.y - 4.0, -90, 1)
+	_e(v.x + 94.0, v.y + 3.0, 90)
+	_e(v.x + 92.0, v.y - 3.0, 90, 1)
+	_e(v.x + 24.0, v.y - 3.0, 180)
+	_e(v.x - 8.0, v.y + 4.0, 0)
+	_e(v.x - 30.0, v.y - 28.0, 0)
+	_e(v.x + 48.0, v.y - 28.0, 0)
+	_e(v.x + 8.0, v.y + 29.0, 180)
 	_e(v.x - 70.0, v.y, 90, 0, [[v.x - 70.0, v.y], [v.x + 70.0, v.y + 2.0]])
-	# колхоз
+	_e(v.x + 60.0, v.y - 4.0, -90, 0, [[v.x + 60.0, v.y - 4.0], [v.x - 15.0, v.y + 4.0]])
+	# колхоз (внутри ангаров и конторы — гарнизоны Bld)
 	var f := FARM
-	_e(f.x + 28.0, f.y - 13.0, 0)
 	_e(f.x + 3.0, f.y - 22.0, 30)
-	_e(f.x - 22.0, f.y - 3.0, 0, 1)
-	_e(f.x + 24.0, f.y + 14.0, 160)
-	_e(f.x + 43.0, f.y - 22.0, 40)
+	_e(f.x - 22.0, f.y - 6.0, 0, 1)
+	_e(f.x + 40.0, f.y - 8.0, 40)
 	_e(f.x - 40.0, f.y + 25.0, 200, 0, [[f.x - 45.0, f.y + 25.0], [f.x + 40.0, f.y + 25.0], [f.x + 40.0, f.y - 35.0], [f.x - 45.0, f.y - 35.0]])
 	_e(f.x + 3.0, f.y - 28.0, 120, 2, [], float(pads[6].h) + 26.0, true)
 	# карьер
@@ -791,6 +943,15 @@ func _define_enemies() -> void:
 	_e(h.x + 8.0, h.y + 6.0, 300, 2, [], float(pads[8].h) + 5.0, true)
 	_e(h.x + 10.0, h.y - 9.0, 330)
 	_e(h.x - 6.0, h.y + 10.0, 230)
+	# хутора: по разу патруль между домами
+	_e(150.0, 400.0, 0, 0, [[125.0, 392.0], [175.0, 392.0]])
+	_e(250.0, -240.0, 0, 0, [[225.0, -247.0], [275.0, -247.0]])
+	_e(-150.0, -215.0, 0, 0, [[-150.0, -240.0], [-150.0, -190.0]])
+	# полевые патрули между районами
+	_e(250.0, 200.0, 0, 0, [[250.0, 130.0], [330.0, 250.0]])
+	_e(-250.0, -40.0, 0, 0, [[-240.0, 100.0], [-300.0, -30.0]])
+	_e(-60.0, -300.0, 0, 0, [[-60.0, -250.0], [20.0, -330.0]])
+	_e(180.0, -100.0, 0, 0, [[140.0, -60.0], [230.0, -150.0]])
 	# патрули на дорогах
 	_e(170.0, 2.0, 90, 0, [[150.0, -4.0], [240.0, 38.0]])
 	_e(190.0, -220.0, 45, 0, [[140.0, -170.0], [260.0, -290.0]])

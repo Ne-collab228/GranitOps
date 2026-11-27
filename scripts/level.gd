@@ -719,6 +719,9 @@ func apply_quality() -> void:
 	var dk: float = float(d.draw) if int(d.quality) >= 2 else float(d.draw) * 0.7
 	for v in veg_ranges:
 		(v[0] as GeometryInstance3D).visibility_range_end = float(v[1]) * dk
+		if v.size() > 2:
+			# дальний LOD деревьев: начало совпадает с концом ближнего
+			(v[0] as GeometryInstance3D).visibility_range_begin = float(v[2]) * dk
 	for c in _props_root.get_children():
 		var mis: Array = Mats.mesh_instances(c)
 		var sz := 0.0
@@ -1289,9 +1292,7 @@ func _rock_mesh(seed_v: int) -> ArrayMesh:
 
 
 func _build_nature() -> void:
-	_scatter_mm(_cross_mesh(0.95, 0.62), Mats.foliage("grass"), 150, 0.7, 1.5, 85.0, 1, 0.5)
-	_scatter_mm(_cross_mesh(0.95, 0.62), Mats.foliage("grass"), 170, 0.6, 1.3, 55.0, 2, 0.5)
-	_scatter_mm(_cross_mesh(1.7, 1.4, 3), Mats.foliage("shrub"), 9, 0.7, 1.5, 240.0, 0, 1.5)
+	_build_veg_ground()
 	# мелкие детали у ног на всех пресетах (своё зерно — не сбивает расстановку камней/деревьев/укрытий):
 	# редкие сухие пучки травы и галька в радиусе ~35 м
 	var saved: int = rng.state
@@ -1356,40 +1357,7 @@ func _build_nature() -> void:
 		add_child(rmi)
 		veg_ranges.append([rmi, 360.0 if key3[1] else 200.0])
 
-	# деревья: ствол + крона из скрещённых плоскостей
-	var tg := Geo.new()
-	var crown := _cross_mesh(4.6, 3.2, 3)
-	var crowns: Array = []
-	var spots: Array = [[-52.0, 44.0], [50.0, -56.0], [-10.0, -62.0], [62.0, 26.0]]
-	tries = 0
-	while spots.size() < int(46 * area_k) and tries < int(2000 * area_k):
-		tries += 1
-		var x2 := rng.randf_range(-size * 0.5 + 15.0, size * 0.5 - 15.0)
-		var z2 := rng.randf_range(-size * 0.5 + 15.0, size * 0.5 - 15.0)
-		if _free_spot(x2, z2, 4.0) and ground(x2, z2) < 26.0:
-			spots.append([x2, z2])
-	for sp2 in spots:
-		var px: float = sp2[0]
-		var pz: float = sp2[1]
-		var gy := ground(px, pz)
-		var th := rng.randf_range(2.6, 4.2)
-		tg.cyl("bark", Transform3D(Basis(Vector3.RIGHT, rng.randf_range(-0.08, 0.08)), Vector3(px, gy + th * 0.5 - 0.1, pz)), 0.2, th, 8, true, false, 0.12)
-		var cs2 := rng.randf_range(0.8, 1.25)
-		crowns.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(cs2, cs2, cs2)), Vector3(px, gy + th - 0.9, pz)))
-		crowns.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(cs2 * 0.7, cs2 * 0.75, cs2 * 0.7)), Vector3(px + 0.3, gy + th + 0.5, pz - 0.2)))
-		cover(px + 0.8, pz)
-		cover(px - 0.8, pz)
-	tg.finish(self, "trees")
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = crown
-	mm.instance_count = crowns.size()
-	for i in crowns.size():
-		mm.set_instance_transform(i, crowns[i])
-	var mmi := MultiMeshInstance3D.new()
-	mmi.multimesh = mm
-	mmi.material_override = Mats.foliage("foliage")
-	add_child(mmi)
+	_build_veg_trees()
 
 
 func _build_backdrop() -> void:
@@ -1425,6 +1393,226 @@ func _build_backdrop() -> void:
 	mi.material_override = m
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
+
+
+# ------------------------------------------------------------------ растительность Veg (карточки, MultiMesh)
+## Состав деревьев карты: вид -> вес. Карта может переопределить в _configure.
+var tree_mix := {"broadleaf": 0.34, "searsia": 0.3, "fir": 0.24, "dead": 0.12}
+## Доля площади под рощами (0..1) и плотность деревьев (1 — шаг сетки 8 м).
+var grove_share := 0.3
+var tree_density := 0.8
+var veg_cell_grass := 22.0
+var veg_cell_tree := 45.0
+
+
+func _veg_noise(seed_add: int, freq: float) -> FastNoiseLite:
+	var nz := FastNoiseLite.new()
+	nz.seed = map_seed + seed_add
+	nz.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	nz.frequency = freq
+	nz.fractal_octaves = 2
+	return nz
+
+
+func _veg_tint(r: RandomNumberGenerator, amp: float) -> Color:
+	var k := 1.0 + r.randf_range(-amp, amp)
+	return Veg.inst_color(Color(k, k * r.randf_range(0.97, 1.03), k * r.randf_range(0.95, 1.03)), 0, 1)
+
+
+func _veg_mm(info: Dictionary, xfs: Array, cols: Array, vis_end: float, vis_begin := 0.0, shadow := false, min_veg := 0) -> void:
+	var mmi := Veg.multimesh(info, xfs, cols)
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadow else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mmi.visibility_range_begin = vis_begin
+	mmi.visibility_range_begin_margin = 4.0 if vis_begin > 0.0 else 0.0
+	mmi.visibility_range_end = vis_end
+	mmi.visibility_range_end_margin = 4.0
+	add_child(mmi)
+	veg_nodes.append([mmi, min_veg])
+	if vis_begin > 0.0:
+		veg_ranges.append([mmi, vis_end, vis_begin])
+	else:
+		veg_ranges.append([mmi, vis_end])
+
+
+## Трава кусками veg_cell_grass м (дальность 45 м) и кусты кусками veg_cell_tree м. Свой ГСЧ — расстановка остального не меняется.
+func _build_veg_ground() -> void:
+	var vr := RandomNumberGenerator.new()
+	vr.seed = map_seed * 7 + 11
+	var dry := _veg_noise(101, 0.006)
+	var meadow := _veg_noise(102, 0.011)
+	var grove := _veg_noise(103, 0.0045)
+	var lim := minf(size * 0.5 - 6.0, play_half + 40.0)
+	var gi := Veg.grass()
+	var cs := veg_cell_grass
+	var nc := int(ceil(lim * 2.0 / cs))
+	for cz in nc:
+		for cx in nc:
+			var x0 := -lim + cx * cs
+			var z0 := -lim + cz * cs
+			var dens := clampf(0.55 + meadow.get_noise_2d(x0 + cs * 0.5, z0 + cs * 0.5) * 1.1, 0.12, 1.0)
+			var cnt := int(64.0 * dens)
+			var xfs: Array = []
+			var cols: Array = []
+			for i in cnt:
+				var x := x0 + vr.randf() * cs
+				var z := z0 + vr.randf() * cs
+				if not _free_spot(x, z, 0.6):
+					continue
+				var dv := dry.get_noise_2d(x, z)
+				var variant := 0
+				var rv := vr.randf()
+				if rv < 0.07:
+					variant = 3
+				elif dv > 0.18:
+					variant = 1 if rv < 0.75 else 2
+				elif dv > -0.05:
+					variant = 2
+				var sc := vr.randf_range(0.75, 1.35)
+				var b := Basis(Vector3.UP, vr.randf() * TAU).scaled(Vector3(sc, sc * vr.randf_range(0.8, 1.3), sc))
+				xfs.append(Transform3D(b, Vector3(x, ground(x, z) - 0.03, z)))
+				var kk := vr.randf_range(0.9, 1.08)
+				cols.append(Veg.inst_color(Color(kk, kk, kk), variant))
+			if xfs.size() > 3:
+				_veg_mm(gi, xfs, cols, float(gi.vis_end), 0.0, false, 1)
+	# кусты: куски по 70 м, один вид на кусок (вызовы отрисовки), у рощ чаще, дальность до 90 м
+	var kinds: Array = Veg.SHRUBS
+	var cs2 := 70.0
+	var nc2 := int(ceil(lim * 2.0 / cs2))
+	for cz in nc2:
+		for cx in nc2:
+			var x0 := -lim + cx * cs2
+			var z0 := -lim + cz * cs2
+			var gn := grove.get_noise_2d(x0 + cs2 * 0.5, z0 + cs2 * 0.5)
+			var cnt := int(vr.randf_range(8.0, 16.0) + maxf(gn, 0.0) * 50.0)
+			var si := Veg.shrub(String(kinds[vr.randi() % kinds.size()]))
+			var xfs: Array = []
+			var cols: Array = []
+			for i in cnt:
+				var x := x0 + vr.randf() * cs2
+				var z := z0 + vr.randf() * cs2
+				if not _free_spot(x, z, 1.5):
+					continue
+				var sc := vr.randf_range(0.8, 1.5)
+				xfs.append(Transform3D(Basis(Vector3.UP, vr.randf() * TAU).scaled(Vector3(sc, sc, sc)), Vector3(x, ground(x, z) - 0.03, z)))
+				cols.append(_veg_tint(vr, 0.1))
+			if xfs.size() >= 3:
+				_veg_mm(si, xfs, cols, minf(float(si.vis_end), 90.0), 0.0, false, 0)
+
+
+## Деревья: рощи по шуму и лесополосы вдоль дорог. Два LOD (ближний до ~80 м, дальний до 260 м) на одних и тех же
+## преобразованиях, куски veg_cell_tree м, не больше 2 видов на кусок (вызовы отрисовки). Ствол — коллизия, часть стволов — укрытия.
+func _build_veg_trees() -> void:
+	var vr := RandomNumberGenerator.new()
+	vr.seed = map_seed * 13 + 5
+	var grove := _veg_noise(103, 0.0045)
+	var lim := minf(size * 0.5 - 8.0, play_half + 30.0)
+	var cs := veg_cell_tree
+	var kinds: Array = tree_mix.keys()
+	var wsum := 0.0
+	for k in kinds:
+		wsum += float(tree_mix[k])
+	var chunks := {}
+	var spots: Array = []
+	var step := 8.0 / sqrt(tree_density)
+	var thr := lerpf(0.5, -0.25, grove_share)
+	var gx := -lim
+	while gx < lim:
+		var gz := -lim
+		while gz < lim:
+			var x := gx + vr.randf() * step
+			var z := gz + vr.randf() * step
+			var gn := grove.get_noise_2d(x, z)
+			if gn > thr and vr.randf() < smoothstep(thr, thr + 0.3, gn) * 0.95:
+				spots.append(Vector3(x, z, gn))
+			gz += step
+		gx += step
+	# лесополосы вдоль дорог: ряд деревьев по обе стороны с шагом ~7 м, «включаются» шумом участками
+	for r in roads:
+		var pts: PackedVector2Array = r
+		for i in pts.size() - 1:
+			var a := pts[i]
+			var b := pts[i + 1]
+			var ln := a.distance_to(b)
+			var dir := (b - a) / maxf(ln, 0.01)
+			var nrm := Vector2(-dir.y, dir.x)
+			var t := 0.0
+			while t < ln:
+				t += 6.0 + vr.randf() * 3.0
+				var c := a + dir * t
+				if grove.get_noise_2d(c.x * 2.3 + 500.0, c.y * 2.3) < -0.05:
+					continue
+				for side in [-1.0, 1.0]:
+					if vr.randf() < 0.35:
+						continue
+					var off: float = side * vr.randf_range(7.5, 11.5)
+					spots.append(Vector3(c.x + nrm.x * off, c.y + nrm.y * off, 1.0))
+	var body := StaticBody3D.new()
+	body.collision_layer = Game.L_WORLD
+	body.collision_mask = 0
+	body.set_meta("surf", "wood")
+	add_child(body)
+	var shape := CylinderShape3D.new()
+	shape.radius = 0.28
+	shape.height = 3.0
+	var count := 0
+	for sp in spots:
+		var x: float = sp.x
+		var z: float = sp.y
+		if absf(x) > lim or absf(z) > lim or not _free_spot(x, z, 2.5) or road_dist(x, z) < 5.5:
+			continue
+		var gy := ground(x, z)
+		if gy > 40.0:
+			continue
+		if absf(ground(x + 2.0, z) - ground(x - 2.0, z)) > 2.2 or absf(ground(x, z + 2.0) - ground(x, z - 2.0)) > 2.2:
+			continue
+		# вид — по весам, но в основном общий на кусок: соседние деревья одного вида
+		var ck := Vector2i(int(floor((x + lim) / cs)), int(floor((z + lim) / cs)))
+		var h := float(absi(hash(ck)) % 1000) / 1000.0
+		var rv := vr.randf()
+		var kind := String(kinds[0])
+		var acc := 0.0
+		var pick := (h if rv < 0.7 else rv) * wsum
+		for k in kinds:
+			acc += float(tree_mix[k])
+			if pick <= acc:
+				kind = String(k)
+				break
+		if gy > 22.0 and kind == "broadleaf":
+			kind = "searsia"
+		var sc := vr.randf_range(0.8, 1.25)
+		var xf := Transform3D(Basis(Vector3.UP, vr.randf() * TAU).scaled(Vector3(sc, sc * vr.randf_range(0.9, 1.15), sc)), Vector3(x, gy - 0.1, z))
+		if not chunks.has(ck):
+			chunks[ck] = {}
+		if not (chunks[ck] as Dictionary).has(kind):
+			(chunks[ck] as Dictionary)[kind] = []
+		((chunks[ck] as Dictionary)[kind] as Array).append(xf)
+		var cs3 := CollisionShape3D.new()
+		cs3.shape = shape
+		cs3.position = Vector3(x, gy + 1.4, z)
+		body.add_child(cs3)
+		count += 1
+		if count % 3 == 0:
+			cover(x + 0.7, z)
+	for ck in chunks:
+		var per: Dictionary = chunks[ck]
+		var ks: Array = per.keys()
+		# один вид на кусок (вызовы отрисовки): всё — в самый частый
+		if ks.size() > 1:
+			ks.sort_custom(func(p, q): return (per[p] as Array).size() > (per[q] as Array).size())
+			for extra in ks.slice(1):
+				(per[ks[0]] as Array).append_array(per[extra])
+				per.erase(extra)
+			ks = ks.slice(0, 1)
+		for kind in ks:
+			var xfs: Array = per[kind]
+			var cols: Array = []
+			for i in xfs.size():
+				cols.append(_veg_tint(vr, 0.08))
+			var near := Veg.tree(String(kind), 0)
+			var far := Veg.tree(String(kind), 1)
+			var d_near := minf(float(near.vis_end), 65.0)
+			_veg_mm(near, xfs, cols, d_near, 0.0, true, 0)
+			_veg_mm(far, xfs, cols, 260.0, d_near, false, 0)
 
 
 # ------------------------------------------------------------------ противники
