@@ -82,9 +82,9 @@ func _configure() -> void:
 	# навигация только над водой не печётся: дно моря (−7 м) ниже нижней границы
 	nav_aabb = AABB(Vector3(-620, -1.5, -620), Vector3(1240, 135, 1240))
 	tree_mix = {"broadleaf": 0.4, "searsia": 0.4, "fir": 0.08, "dead": 0.12}
-	grove_share = 0.25
-	tree_density = 0.55
-	veg_cell_grass = 44.0
+	grove_share = 0.35
+	tree_density = 0.75
+	veg_cell_grass = 36.0
 	veg_cell_tree = 70.0
 	site_points = [Vector3(SPAWN.x, SPAWN.y, 0), Vector3(OIL.x, OIL.y, 105), Vector3(STADIUM.x, STADIUM.y, 62), Vector3(LIGHT.x, LIGHT.y, 50),
 		Vector3(-190, 20, 140), Vector3(0, 20, 140), Vector3(-90, 150, 90), Vector3(260, 40, 110), Vector3(400, 40, 110), Vector3(260, -90, 90), Vector3(420, -90, 90)]
@@ -112,23 +112,24 @@ func _setup_noise() -> void:
 
 func _terrain_tex() -> Dictionary:
 	# сухая прибрежная земля, бетон (асфальт городских участков и порта), скала
-	return {"a": "aerial_grass_rock", "b": "concrete_floor_worn_001", "r": "rock_boulder_dry", "tint": Vector3(0.95, 0.95, 0.9)}
+	return {"a": "aerial_grass_rock", "b": "concrete_floor_worn_001", "r": "rock_boulder_dry", "tint": Vector3(0.95, 0.95, 0.9),
+		"grass": Vector3(0.33, 0.37, 0.18), "grass_amt": 0.6}
 
 
 ## Южное море: светлое небо, тёплое солнце, голубоватая дымка.
 func _tune_environment() -> void:
-	env.tonemap_exposure = 1.04
-	env.adjustment_contrast = 1.1
-	env.adjustment_saturation = 1.08
-	env.ambient_light_color = Color(0.66, 0.7, 0.78)
+	env.tonemap_exposure = 1.02
+	env.adjustment_contrast = 1.17
+	env.adjustment_saturation = 1.12
+	env.ambient_light_color = Color(0.6, 0.68, 0.8)
 	env.ambient_light_sky_contribution = 0.58
-	env.ambient_light_energy = 1.0
-	env.fog_light_color = Color(0.7, 0.79, 0.88)
-	env.fog_density = 0.0006
-	env.fog_aerial_perspective = 0.4
-	env.fog_sun_scatter = 0.15
-	sun.light_color = Color(1.0, 0.93, 0.8)
-	sun.light_energy = 1.25
+	env.ambient_light_energy = 0.92
+	env.fog_light_color = Color(0.68, 0.78, 0.88)
+	env.fog_density = 0.0007
+	env.fog_aerial_perspective = 0.5
+	env.fog_sun_scatter = 0.25
+	sun.light_color = Color(1.0, 0.91, 0.76)
+	sun.light_energy = 1.4
 
 
 # ------------------------------------------------------------------ рельеф и береговая линия
@@ -248,8 +249,8 @@ func _free_spot(x: float, z: float, margin := 2.0) -> bool:
 # ------------------------------------------------------------------ вода
 const WATER_SHADER := "shader_type spatial;
 render_mode blend_mix, depth_draw_opaque, cull_disabled;
-uniform vec3 deep_col : source_color = vec3(0.008, 0.1, 0.18);
-uniform vec3 shallow_col : source_color = vec3(0.04, 0.3, 0.36);
+uniform vec3 deep_col : source_color = vec3(0.004, 0.05, 0.1);
+uniform vec3 shallow_col : source_color = vec3(0.03, 0.2, 0.25);
 uniform float amp = 1.0;
 varying vec3 wp;
 
@@ -279,8 +280,8 @@ void fragment() {
 	foam = clamp(foam, 0.0, 1.0);
 	ALBEDO = mix(col, vec3(0.92, 0.95, 0.95), foam * 0.75);
 	ALPHA = clamp(mix(0.55, 0.97, depth) + foam * 0.4, 0.0, 1.0);
-	ROUGHNESS = 0.07;
-	SPECULAR = 0.35;
+	ROUGHNESS = 0.2;
+	SPECULAR = 0.14;
 	METALLIC = 0.0;
 }
 "
