@@ -135,17 +135,19 @@ func _terrain_tex() -> Dictionary:
 ## Цветокоррекция и свет (бесплатно для GPU): тёплое солнце, холодные тени, воздушная перспектива,
 ## чуть больше контраста — картинка объёмнее без новых проходов рендера.
 func _tune_environment() -> void:
-	env.tonemap_exposure = 1.04
-	env.adjustment_contrast = 1.13
-	env.adjustment_saturation = 1.1
-	env.ambient_light_color = Color(0.6, 0.65, 0.74)
+	# сухая долина: тёплое низкое солнце, холодные синеватые тени, дальняя дымка тёплым песочным оттенком у горизонта
+	env.tonemap_exposure = 1.02
+	env.adjustment_contrast = 1.17
+	env.adjustment_saturation = 1.14
+	env.ambient_light_color = Color(0.55, 0.62, 0.76)
 	env.ambient_light_sky_contribution = 0.5
-	env.fog_light_color = Color(0.66, 0.72, 0.82)
-	env.fog_density = 0.0006
-	env.fog_aerial_perspective = 0.3
-	env.fog_sun_scatter = 0.18
-	sun.light_color = Color(1.0, 0.92, 0.8)
-	sun.light_energy = 1.25
+	env.ambient_light_energy = 0.9
+	env.fog_light_color = Color(0.72, 0.74, 0.8)
+	env.fog_density = 0.00075
+	env.fog_aerial_perspective = 0.45
+	env.fog_sun_scatter = 0.3
+	sun.light_color = Color(1.0, 0.9, 0.74)
+	sun.light_energy = 1.4
 
 
 func _setup_pads() -> void:

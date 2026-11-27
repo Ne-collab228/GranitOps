@@ -94,23 +94,24 @@ func _setup_noise() -> void:
 
 
 func _terrain_tex() -> Dictionary:
-	return {"a": "aerial_grass_rock", "b": "forrest_ground_01", "r": "rock_boulder_dry", "tint": Vector3(0.84, 0.9, 0.86)}
+	return {"a": "aerial_grass_rock", "b": "forrest_ground_01", "r": "rock_boulder_dry", "tint": Vector3(0.84, 0.9, 0.86),
+		"grass": Vector3(0.2, 0.3, 0.13), "grass_amt": 0.6, "strata": 1.0}
 
 
 ## Холодный горный воздух: синеватая дымка, заметная перспектива, низкое солнце.
 func _tune_environment() -> void:
-	env.tonemap_exposure = 1.06
-	env.adjustment_contrast = 1.14
-	env.adjustment_saturation = 1.04
-	env.ambient_light_color = Color(0.58, 0.64, 0.76)
+	env.tonemap_exposure = 1.05
+	env.adjustment_contrast = 1.22
+	env.adjustment_saturation = 1.1
+	env.ambient_light_color = Color(0.56, 0.64, 0.8)
 	env.ambient_light_sky_contribution = 0.6
-	env.ambient_light_energy = 1.0
-	env.fog_light_color = Color(0.62, 0.7, 0.82)
-	env.fog_density = 0.0007
-	env.fog_aerial_perspective = 0.5
-	env.fog_sun_scatter = 0.2
-	sun.light_color = Color(1.0, 0.9, 0.76)
-	sun.light_energy = 1.3
+	env.ambient_light_energy = 0.92
+	env.fog_light_color = Color(0.6, 0.69, 0.84)
+	env.fog_density = 0.00085
+	env.fog_aerial_perspective = 0.6
+	env.fog_sun_scatter = 0.3
+	sun.light_color = Color(1.0, 0.88, 0.7)
+	sun.light_energy = 1.5
 
 
 # ------------------------------------------------------------------ рельеф
@@ -129,7 +130,14 @@ func base_height(x: float, z: float) -> float:
 	var w := smoothstep(40.0, 280.0, absf(x - 25.0))
 	var belt := smoothstep(265.0, 120.0, z) * smoothstep(-420.0, -270.0, z)
 	h += lift * (1.0 - w * belt)
-	h += w * belt * (95.0 + 55.0 * noise_c.get_noise_2d(x, z) + 14.0 * noise_a.get_noise_2d(x * 2.0, z * 2.0))
+	var mt := 95.0 + 55.0 * noise_c.get_noise_2d(x, z) + 14.0 * noise_a.get_noise_2d(x * 2.0, z * 2.0)
+	# скальные гребни (острые хребты вместо увалов) и ступени-обрывы слоёв; у серпантина (малый w) ничего не меняется
+	var wc := smoothstep(0.3, 0.65, w) * belt
+	var rg := 1.0 - absf(noise_c.get_noise_2d(x * 1.6 + 500.0, z * 1.6 - 200.0))
+	mt += wc * (46.0 * rg * rg * rg * rg - 14.0)
+	var st := mt / 24.0
+	mt = lerpf(mt, (floorf(st) + smoothstep(0.5, 0.82, st - floorf(st))) * 24.0, 0.8 * wc)
+	h += w * belt * mt
 	# ущелье с мостом
 	var gd := absf(z - _gz(x))
 	var ge := 1.0 - smoothstep(150.0, 260.0, absf(x - 40.0))
