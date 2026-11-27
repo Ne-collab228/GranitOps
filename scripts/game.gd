@@ -139,7 +139,7 @@ func _setup_input() -> void:
 ## Автотесты рассчитаны на фиксированную точку появления и полную расстановку противников.
 func test_mode() -> bool:
 	var a := OS.get_cmdline_user_args()
-	return "--test" in a or "--touchtest" in a or arg_prefix("--gunshots") or "--bench" in a
+	return "--test" in a or "--touchtest" in a or arg_prefix("--gunshots") or "--bench" in a or "--vehtest" in a
 
 
 ## Есть ли аргумент командной строки, начинающийся с prefix.

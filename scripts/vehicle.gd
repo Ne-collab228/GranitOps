@@ -35,6 +35,11 @@ var _near: Array[GeometryInstance3D] = []
 var _far_mi: MeshInstance3D
 var _burn_t := 0.0
 var _stuck_t := 0.0
+## ИИ: сколько секунд упирается в препятствие на газу и сколько раз подряд пришлось сдавать назад.
+var _ai_stuck_t := 0.0
+var _ai_stuck_n := 0
+var _rev_stuck_t := 0.0
+var _fwd_force_t := 0.0
 var _reverse_t := 0.0
 var _kin := false
 var _see_t := 0.0
@@ -59,7 +64,7 @@ func setup(id: String, color_i: int, xf: Transform3D) -> void:
 	_far_mi.mesh = model.bodies_far[color_i]
 	_far_mi.visibility_range_begin = LOD_DIST
 	_far_mi.visibility_range_begin_margin = 4.0
-	_far_mi.visibility_range_end = 700.0
+	_far_mi.visibility_range_end = 450.0
 	_far_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_far_mi)
 
@@ -70,7 +75,9 @@ func _ready() -> void:
 	set_meta("surf", "metal")
 	mass = float(def.mass)
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
-	center_of_mass = Vector3(0, model.wheel_r + 0.25, 0)
+	center_of_mass = Vector3(0, model.wheel_r * 0.7, 0)  # низкий центр масс — иначе машина кувыркается на поворотах
+	angular_damp = 0.9
+	linear_damp = 0.05
 	can_sleep = true
 	var bb := model.body_aabb
 	var clear := model.wheel_r * 1.1
@@ -86,14 +93,14 @@ func _ready() -> void:
 		var w := VehicleWheel3D.new()
 		w.position = hp_pos + Vector3(0, SUSP, 0)
 		w.wheel_radius = model.wheel_r
-		w.suspension_rest_length = SUSP
+		w.wheel_rest_length = SUSP
 		w.suspension_travel = 0.26
 		w.suspension_stiffness = 38.0
 		w.damping_compression = 1.9
 		w.damping_relaxation = 2.4
 		w.suspension_max_force = mass * 14.0
 		w.wheel_friction_slip = 2.6 * float(def.offroad) + 0.6
-		w.wheel_roll_influence = 0.08
+		w.wheel_roll_influence = 0.03
 		var front := i < 2
 		w.use_as_steering = front
 		w.use_as_traction = not front or bool(def.mil)
@@ -109,6 +116,12 @@ func _ready() -> void:
 		add_child(w)
 		wheels.append(w)
 	_park(true)
+
+
+## Отладка ИИ: одна строка состояния (для --vehtest).
+func ai_debug() -> String:
+	var tgt := route[route_i] if route.size() > 0 else Vector3.ZERO
+	return "%s (%.0f,%.0f) v=%.0f км/ч ai=%s st=%d kin=%s точка %d/%d до неё %.0f м газ=%.2f руль=%.2f торм=%.0f застр=%.1f зад=%.1f сила=%.0f к=%d |v|=%.1f" % [vid, global_position.x, global_position.z, speed * 3.6, ai, ai_state, _kin, route_i, route.size(), Vector2(tgt.x - global_position.x, tgt.z - global_position.z).length(), throttle_in, steer_in, brake, _stuck_t, _reverse_t, engine_force, wheels.filter(func(w): return w.is_in_contact()).size(), linear_velocity.length()]
 
 
 func is_free() -> bool:
@@ -175,6 +188,12 @@ func _physics_process(delta: float) -> void:
 		_burn_t -= delta
 		return
 	speed = linear_velocity.dot(-global_transform.basis.z)
+	# страховка от физических «выстрелов» (глубокое проникновение при пробуждении/телепорте): скорость не больше 1.6 vmax
+	if not freeze and linear_velocity.length() > float(def.vmax) * 1.6:
+		if Game.test_mode():
+			print("VEH ВЫСТРЕЛ ", ai_debug())
+		linear_velocity = linear_velocity.limit_length(float(def.vmax))
+		angular_velocity = Vector3.ZERO
 	if ai:
 		_ai(delta)
 	if freeze and not _kin:
@@ -186,8 +205,14 @@ func _physics_process(delta: float) -> void:
 
 func _drive(delta: float) -> void:
 	var vmax: float = def.vmax
+	if ai and ai_state == 1:
+		# тревога: плавно встать (тормозом, без тяги — иначе у самой остановки включался задний ход)
+		engine_force = 0.0
+		brake = float(def.brake)
+		steering = move_toward(steering, 0.0, delta * 2.2)
+		return
 	var k := clampf(absf(speed) / vmax, 0.0, 1.0)
-	var max_steer := lerpf(0.62, 0.16, k)
+	var max_steer := lerpf(0.55, 0.07, sqrt(k))
 	steering = move_toward(steering, steer_in * max_steer, delta * 2.2)
 	var power: float = float(def.power) * 1.6
 	brake = 0.0
@@ -196,14 +221,25 @@ func _drive(delta: float) -> void:
 		if speed < -1.0:
 			brake = float(def.brake) * throttle_in
 		elif speed < vmax:
-			engine_force = power * throttle_in * (1.0 - k * k * 0.7)
+			engine_force = -power * throttle_in * (1.0 - k * k * 0.7)  # в VehicleBody3D положительная сила тянет к +Z, а перёд модели — −Z
 	elif throttle_in < -0.05:
 		if speed > 1.0:
 			brake = float(def.brake) * -throttle_in
 		elif speed > -vmax * 0.3:
-			engine_force = power * 0.6 * throttle_in
+			engine_force = -power * 0.6 * throttle_in
 	else:
 		brake = 1.5
+	# в воздухе гасим крен/тангаж, чтобы не приземляться на бок; на земле — прижимная сила от скорости
+	var grounded := false
+	for w in wheels:
+		if w.is_in_contact():
+			grounded = true
+			break
+	if not grounded:
+		angular_velocity.x *= 1.0 - minf(1.0, delta * 3.0)
+		angular_velocity.z *= 1.0 - minf(1.0, delta * 3.0)
+	else:
+		apply_central_force(Vector3(0, -absf(speed) * mass * 0.35, 0))
 	# переворот: если машина легла на бок и стоит — аккуратно поставить на колёса
 	if global_transform.basis.y.y < 0.3 and linear_velocity.length() < 1.0:
 		_stuck_t += delta
@@ -250,7 +286,7 @@ func _ram(_delta: float) -> void:
 func take_hit(dmg: float, pos: Vector3, from_player: bool) -> void:
 	if dead:
 		return
-	hp -= dmg * 0.55
+	hp -= dmg * 0.8
 	if from_player and ai:
 		_alarm()
 	if hp <= 0.0:
@@ -304,7 +340,7 @@ func start_ai(path: PackedVector3Array, crew_spawns: Array, start_i := 0) -> voi
 func _ai(delta: float) -> void:
 	if ai_state == 1 or route.size() < 2:
 		steer_in = 0.0
-		throttle_in = -1.0 if absf(speed) > 0.5 else 0.0
+		throttle_in = -signf(speed) if absf(speed) > 0.5 else 0.0  # тормозить в любую сторону (в _drive минус при движении вперёд — тормоз, плюс при заднем ходе — тоже)
 		if absf(speed) < 0.6 and not crew.is_empty():
 			_dismount()
 		return
@@ -323,14 +359,19 @@ func _ai(delta: float) -> void:
 			return
 	# дальняя машина — без физики: едет по точкам маршрута с крейсерской скоростью
 	var want_kin := pd > FAR_SIM
-	if want_kin != _kin:
+	# (ИИ-машина стартует «запаркованной» — статичной: при первом же кадре в физической зоне будим её)
+	if want_kin != _kin or (not _kin and freeze):
+		var was_kin := _kin
 		_kin = want_kin
 		if _kin:
 			freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
 			freeze = true
 		else:
 			freeze = false
-			linear_velocity = -global_transform.basis.z * cruise * 0.8
+			sleeping = false
+			brake = 0.0
+			if was_kin:
+				linear_velocity = -global_transform.basis.z * cruise * 0.8
 	var target := route[route_i]
 	var to := target - global_position
 	to.y = 0.0
@@ -354,6 +395,21 @@ func _ai(delta: float) -> void:
 		ahead = target.lerp(route[j], 0.5)
 	var local := global_transform.affine_inverse() * ahead
 	var ang := atan2(-local.x, -local.z)
+	if _fwd_force_t > 0.0:
+		# задний ход упёрся — выбираемся вперёд, руль в сторону цели
+		_fwd_force_t -= delta
+		steer_in = signf(ang)
+		throttle_in = 0.6
+		return
+	if (absf(ang) > deg_to_rad(110.0) or _reverse_t > 0.0) and absf(speed) < 0.5 and _reverse_t > 0.0:
+		_rev_stuck_t += delta
+		if _rev_stuck_t > 2.0:
+			_rev_stuck_t = 0.0
+			_reverse_t = 0.0
+			_fwd_force_t = 2.5
+			return
+	elif absf(speed) > 1.0:
+		_rev_stuck_t = 0.0
 	if absf(ang) > deg_to_rad(110.0) or _reverse_t > 0.0:
 		# цель сзади: задний ход с обратным рулём (разворот в несколько приёмов)
 		_reverse_t = maxf(_reverse_t - delta, 0.0) if absf(ang) < deg_to_rad(60.0) else 1.2
@@ -364,11 +420,18 @@ func _ai(delta: float) -> void:
 	var want := cruise * lerpf(1.0, 0.45, clampf(absf(ang) / 0.8, 0.0, 1.0))
 	throttle_in = clampf((want - speed) * 0.4, -1.0, 1.0)
 	# застрял — сдать назад
-	if speed < 0.5 and throttle_in > 0.3:
-		_stuck_t += delta
-		if _stuck_t > 3.0:
-			_reverse_t = 1.5
-			_stuck_t = 0.0
+	if absf(speed) < 0.7 and throttle_in > 0.3:
+		_ai_stuck_t += delta
+		if _ai_stuck_t > 1.6:
+			_ai_stuck_t = 0.0
+			_ai_stuck_n += 1
+			_reverse_t = 1.8
+			# второй раз подряд — объезд: пропустить ближайшую точку маршрута
+			if _ai_stuck_n >= 2:
+				route_i = clampi(route_i + route_dir, 0, route.size() - 1)
+	elif absf(speed) > 3.0:
+		_ai_stuck_t = 0.0
+		_ai_stuck_n = 0
 
 
 ## Тревога: остановиться и высадить экипаж.
@@ -400,5 +463,8 @@ func _dismount() -> void:
 			e.alerted(p.global_position)
 	crew.clear()
 	ai = false
+	throttle_in = 0.0
+	steer_in = 0.0
+	engine_force = 0.0
 	_park(false)
 	brake = 40.0
