@@ -32,7 +32,7 @@ var gpu_name := ""
 var data := {
 	"quality": 2, "scale": 1.0, "shadows": 3, "aa": 1, "glow": true, "normal_maps": true,
 	"veg": 2, "ssao": false, "draw": 1.0, "lod": 1.0,
-	"dyn_res": false, "fps_cap": 0, "show_fps": false,
+	"dyn_res": false, "fps_cap": 0, "show_fps": false, "send_logs": true,
 	"sens": 1.0, "ads_sens": 0.75, "invert_y": false, "gyro": false, "aim_assist": true,
 	"auto_fire": false, "left_fire": true, "toggle_ads": true, "vibration": true,
 	"fov": 75.0, "volume": 0.9, "difficulty": 1, "renderer": "auto",

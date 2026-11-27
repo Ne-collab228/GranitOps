@@ -5,3 +5,4 @@ tools/_veg_src/
 release.keystore
 *.tmp
 .claude/
+log_token.cfg
