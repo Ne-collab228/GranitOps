@@ -108,23 +108,24 @@ func _setup_noise() -> void:
 
 
 func _terrain_tex() -> Dictionary:
-	return {"a": "aerial_grass_rock", "b": "forrest_ground_01", "r": "rock_boulder_dry", "tint": Vector3(0.9, 0.92, 0.84)}
+	return {"a": "aerial_grass_rock", "b": "forrest_ground_01", "r": "rock_boulder_dry", "tint": Vector3(0.9, 0.92, 0.84),
+		"grass": Vector3(0.3, 0.37, 0.15), "grass_amt": 0.2, "grass_vert": 1.0}
 
 
 ## Вечер: тёплое низкое солнце, холодные тени, заметная воздушная перспектива (горы вдали).
 func _tune_environment() -> void:
-	env.tonemap_exposure = 1.08
-	env.adjustment_contrast = 1.12
-	env.adjustment_saturation = 1.08
-	env.ambient_light_color = Color(0.62, 0.66, 0.74)
+	env.tonemap_exposure = 1.06
+	env.adjustment_contrast = 1.17
+	env.adjustment_saturation = 1.12
+	env.ambient_light_color = Color(0.58, 0.64, 0.76)
 	env.ambient_light_sky_contribution = 0.6
-	env.ambient_light_energy = 1.05
-	env.fog_light_color = Color(0.74, 0.72, 0.7)
-	env.fog_density = 0.00042
-	env.fog_aerial_perspective = 0.4
-	env.fog_sun_scatter = 0.25
-	sun.light_color = Color(1.0, 0.86, 0.68)
-	sun.light_energy = 1.35
+	env.ambient_light_energy = 0.95
+	env.fog_light_color = Color(0.74, 0.74, 0.76)
+	env.fog_density = 0.0006
+	env.fog_aerial_perspective = 0.5
+	env.fog_sun_scatter = 0.3
+	sun.light_color = Color(1.0, 0.86, 0.66)
+	sun.light_energy = 1.45
 
 
 # ------------------------------------------------------------------ рельеф

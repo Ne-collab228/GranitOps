@@ -165,7 +165,7 @@ func _yard_weight(_x: float, _z: float) -> float:
 
 
 func _terrain_tex() -> Dictionary:
-	return {"a": "sandy_gravel_02", "b": "dry_ground_rocks", "r": "rock_boulder_dry"}
+	return {"a": "sandy_gravel_02", "b": "dry_ground_rocks", "r": "rock_boulder_dry", "grass": Vector3(0.36, 0.36, 0.17), "grass_amt": 0.45}
 
 
 func _tune_environment() -> void:
@@ -336,6 +336,9 @@ func _make_terrain_mat() -> void:
 	if tt.has("tint"):
 		terrain_mat.set_shader_parameter("tint", tt.tint)
 	terrain_mat.set_shader_parameter("macro", load("res://assets/gen/macro_noise.png"))
+	for k in ["grass", "grass_amt", "grass_vert", "strata", "rock_dark"]:
+		if tt.has(k):
+			terrain_mat.set_shader_parameter("grass_col" if k == "grass" else k, tt[k])
 
 
 func _instance_terrain() -> void:
@@ -660,7 +663,11 @@ func _setup_environment() -> void:
 	var sky := Sky.new()
 	var pm := PanoramaSkyMaterial.new()
 	var hi: bool = int(Settings.data.quality) >= 2 and not Settings.is_mobile
-	pm.panorama = load(sky_file if sky_file != "" else ("res://assets/sky/sky_4k.hdr" if hi else "res://assets/sky/sky_2k.hdr"))
+	# sky_4k.hdr исключён из экспорта (APK), поэтому берём 4k только если файл реально доступен (запуск из редактора)
+	var sky_path := sky_file if sky_file != "" else "res://assets/sky/sky_2k.hdr"
+	if sky_file == "" and hi and ResourceLoader.exists("res://assets/sky/sky_4k.hdr"):
+		sky_path = "res://assets/sky/sky_4k.hdr"
+	pm.panorama = load(sky_path)
 	sky.sky_material = pm
 	sky.radiance_size = Sky.RADIANCE_SIZE_256 if hi else Sky.RADIANCE_SIZE_128
 	sky.process_mode = Sky.PROCESS_MODE_QUALITY if hi else Sky.PROCESS_MODE_INCREMENTAL
