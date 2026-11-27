@@ -13,10 +13,10 @@ const SUN_DIR := Vector3(-0.377, 0.741, 0.556)
 const ROAD_MAX := 30.0
 ## Навигация кусками: ширина полосы соседей при запекании (края кусков совпадают и сшиваются).
 const NAV_BORDER := 4.0
-## Карты: [скрипт, название]. Индекс — Settings.data.map.
+## Карты: [скрипт, название, подпись (необязательно)]. Индекс — Settings.data.map.
 const MAPS := [
-	["res://scripts/map_valley.gd", "Долина «Гранит»"],
-	["res://scripts/map_airfield.gd", "Аэродром «Северный»"],
+	["res://scripts/map_valley.gd", "Долина «Гранит»", "1,2 км, опорная база и деревни, 6 целей"],
+	["res://scripts/map_airfield.gd", "Аэродром «Северный»", "1,4 км, взлётка и зенитная позиция, 5 целей"],
 ]
 
 var rng := RandomNumberGenerator.new()
@@ -80,6 +80,12 @@ var site_points: Array[Vector3] = []
 var blast_fx := {}
 var _fence_shapes: Array = []
 var _burn := {}
+
+
+## Название и подпись карты для меню (подпись берётся из третьего элемента MAPS, если он есть).
+static func map_info(id: int) -> Dictionary:
+	var m: Array = MAPS[clampi(id, 0, MAPS.size() - 1)]
+	return {"name": str(m[1]), "sub": str(m[2]) if m.size() > 2 else ""}
 
 
 static func create(id: int) -> Level:

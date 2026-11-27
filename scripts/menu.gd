@@ -21,6 +21,8 @@ var current := ""
 # --- оружейная
 var arsenal_ui: ArsenalUI
 var loadout_label: Label
+var brief_label: Label
+var map_cards: Array = []
 
 
 func _ready() -> void:
@@ -177,25 +179,76 @@ func _build_main() -> void:
 	var bv := VBoxContainer.new()
 	bv.add_theme_constant_override("separation", 10)
 	brief.add_child(bv)
+	bv.add_child(_label("КАРТА", 22, SAND))
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	bv.add_child(grid)
+	var grp := ButtonGroup.new()
+	for i in Level.MAPS.size():
+		var info := Level.map_info(i)
+		var b := Button.new()
+		b.toggle_mode = true
+		b.button_group = grp
+		b.text = "%s\n%s" % [info.name, info.sub]
+		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		b.clip_text = false
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.custom_minimum_size = Vector2(0, 84)
+		b.add_theme_font_size_override("font_size", 15)
+		for k in ["font_pressed_color", "font_hover_pressed_color", "font_focus_color"]:
+			b.add_theme_color_override(k, Color(0.1, 0.09, 0.06))
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.button_pressed = i == clampi(int(Settings.data.map), 0, Level.MAPS.size() - 1)
+		b.pressed.connect(_pick_map.bind(i))
+		grid.add_child(b)
+		map_cards.append(b)
+	_mark_map_cards()
 	bv.add_child(_label("БРИФИНГ", 22, SAND))
-	var txt := _label(
-		"Противник развернул в долине опорную базу. Вы высаживаетесь на южном гребне.\n\n" +
-		"• Уничтожить РЛС на северо-западном холме\n" +
-		"• Подорвать топливный склад на базе\n" +
-		"• Забрать разведданные на втором этаже штаба\n" +
-		"• Выйти к точке эвакуации на северо-востоке\n\n" +
-		"Пули летят по баллистике: на дальних дистанциях берите упреждение и поправку по высоте. " +
-		"Блик на вышке — снайпер. Выстрелы слышны далеко: тревога поднимает весь гарнизон.\n\n" +
-		"Патроны: с убитых противников выпадают подсумки (подбираются на ходу), а армейские ящики " +
-		"отмечены на компасе синим. Наведите прицел на противника — он будет отмечен красной меткой.", 16, Color(1, 1, 1, 0.85))
+	brief_label = _label("", 16, Color(1, 1, 1, 0.85))
+	var txt := brief_label
+	txt.text = "Загрузка…"
 	txt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	txt.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	bv.add_child(txt)
+	txt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.add_child(txt)
+	bv.add_child(sc)
 	var hint := "Управление: джойстик слева, обзор — свайп справа. Кнопку огня можно вести пальцем, прицеливаясь." if Settings.touch_ui \
 		else "WASD — движение, ЛКМ — огонь, ПКМ — прицел, R — перезарядка, C — присесть, G — граната, H — аптечка, F — действие, 1/2/3 — оружие, B — режим огня, Q/E — наклон."
 	var hl := _label(hint, 14, Color(1, 1, 1, 0.55))
 	hl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	bv.add_child(hl)
+
+
+## Текст брифинга выбранной карты + общие подсказки.
+func set_briefing(text: String) -> void:
+	brief_label.text = text + "\n\nПули летят по баллистике: на дальних дистанциях берите упреждение и поправку по высоте. " \
+		+ "Выстрелы слышны далеко: тревога поднимает весь гарнизон.\n\n" \
+		+ "Патроны: с убитых выпадают подсумки (подбираются на ходу), армейские ящики отмечены на компасе синим. " \
+		+ "Наведите прицел на противника — он будет отмечен красной меткой."
+
+
+func _mark_map_cards() -> void:
+	var sel := clampi(int(Settings.data.map), 0, Level.MAPS.size() - 1)
+	for i in map_cards.size():
+		(map_cards[i] as Button).modulate = Color.WHITE if i == sel else Color(0.75, 0.75, 0.75)
+
+
+## Выбор карты: сохраняем и перезагружаем сцену — старый уровень освобождается, строится новый.
+func _pick_map(i: int) -> void:
+	_mark_map_cards()
+	if i == int(Settings.data.map):
+		return
+	Settings.data.map = i
+	Settings.save()
+	_mark_map_cards()
+	show_panel("loading")
+	loading_label.text = "Загрузка: %s…" % Level.map_info(i).name
+	await get_tree().process_frame
+	Game.main.restart(false)
 
 
 func _build_pause() -> void:

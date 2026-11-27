@@ -33,10 +33,12 @@ func _ready() -> void:
 	Game.pickups.clear()
 	var args := OS.get_cmdline_user_args()
 	var map_id := int(Settings.data.map)
+	# --map=N действует только при первом запуске: выбор в меню (перезагрузка сцены) его перекрывает
 	for a in args:
-		if a.begins_with("--map="):
+		if a.begins_with("--map=") and not Engine.has_meta("map_arg_done"):
 			map_id = int(a.get_slice("=", 1))
 			Settings.data.map = map_id
+	Engine.set_meta("map_arg_done", true)
 	menu = Menu.new()
 	add_child(menu)
 	menu.start_pressed.connect(start_mission)
@@ -52,6 +54,7 @@ func _ready() -> void:
 	level.progress.connect(menu.set_loading)
 	await get_tree().process_frame
 	await level.build("--bake" in args)
+	menu.set_briefing(level.briefing())
 	if "--bake" in args:
 		level.bake_map_image()
 		get_tree().quit()
@@ -128,6 +131,12 @@ func _ready() -> void:
 			ed._finish()
 			Game.autostart = true
 			restart(true)
+			return
+		if "--pickmap" in args and not Engine.has_meta("pickmap_done"):
+			# автотест выбора карты в меню: переключить на вторую карту (сцена перезагрузится)
+			Engine.set_meta("pickmap_done", true)
+			await _frames(5)
+			menu._pick_map(1)
 			return
 		if "--menushot" in args:
 			await _frames(90)
