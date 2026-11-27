@@ -55,6 +55,19 @@ func _pickups(p: Player) -> void:
 	Game.pickups = Game.pickups.filter(func(n): return is_instance_valid(n) and not n.is_queued_for_deletion())
 
 
+## Общий список целей для интерфейса (метки над объектами, список задач, карты). Любая карта задаёт цели
+## через Level.mission_objectives(): id, title, pos, done, locked. Номер — порядок в списке (последняя обычно эвакуация).
+## Возвращает [{num, id, title, pos, done, locked, lz}]; lz — цель выхода к точке эвакуации (id "lz").
+func goals() -> Array:
+	var out: Array = []
+	var i := 0
+	for o in objectives:
+		i += 1
+		out.append({"num": i, "id": String(o.id), "title": String(o.title), "pos": o.pos as Vector3,
+			"done": bool(o.done), "locked": bool(o.get("locked", false)), "lz": String(o.id) == "lz"})
+	return out
+
+
 func _obj(id: String) -> Dictionary:
 	for o in objectives:
 		if o.id == id:

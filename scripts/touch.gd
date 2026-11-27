@@ -114,6 +114,10 @@ func _input(event: InputEvent) -> void:
 
 func _down(i: int, pos: Vector2) -> void:
 	var p: Player = Game.player
+	# карта: тап по мини-карте открывает/закрывает полную, на открытой карте любой тап её закрывает
+	if hud.map != null and (hud.map.open or hud.map.hit(pos)):
+		hud.map.toggle()
+		return
 	for b in BTN:
 		var id: String = b[0]
 		if not _btn_visible(id):
