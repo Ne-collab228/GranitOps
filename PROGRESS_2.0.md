@@ -21,7 +21,7 @@
 - **Растительность** (агент Opus, готово): scripts/veg.gd (Veg.tree/shrub/grass/multimesh/inst_color, set_wind, set_normals), veg_data.gd,
   атласы assets/veg (19 МБ), превью scenes/veg_preview.tscn. Трава кусками 20–25 м, дальность 45 м. В карты ЕЩЁ НЕ ВСТРОЕНА.
   Добавить scenes/veg_preview.tscn и scenes/bld_preview.tscn, scenes/vehicle_probe.tscn, assets/vehicles/src/* в exclude_filter export_presets.cfg.
-- **Машины** (код написан, НЕ ПРОВЕРЕН): scripts/veh_defs.gd (7 моделей: uaz469, uaz452, pickup, suv, sedan, hatch, van + остов wreck_uaz452),
+- **Машины** (проверены автотестом `--vehtest` на обеих картах; аргументы `--vehai` (без езды игрока), `--vehquick`, `--vehdraw`; в VehicleBody3D положительная engine_force тянет к +Z, поэтому в vehicle.gd она отрицательная): scripts/veh_defs.gd (7 моделей: uaz469, uaz452, pickup, suv, sedan, hatch, van + остов wreck_uaz452),
   scripts/vehicle_model.gd, tools/flatten_vehicles.gd (`G --headless --path . --script res://tools/flatten_vehicles.gd` → assets/vehicles/*.res),
   scripts/vehicle.gd (VehicleBody3D: игрок/ИИ, урон, взрыв, кинематика вдали, высадка экипажа), встроено в player.gd (enter/exit_vehicle,
   камера 3-го лица), mission.gd (подсказка «Сесть»), touch.gd (в машине только «interact»=выйти и пауза), hud.gd, ballistics.gd, fx.gd, enemy.gd,
@@ -33,7 +33,7 @@ scripts/map_airfield.gd написан (~1500 строк), рельеф и на�
 Осталось: скриншоты/BENCH `-- --bench --viewshot --map=1`, урезать ели (9914 шт.), soak-тест, здания на Bld.
 
 ## Дальше (по порядку)
-1. Автотест машин `--vehtest` (не записан — патч был отклонён; см. идею: сесть в ближайшую, газ/руль/тормоз, печать скорости, патрули ИИ).
+1. ~~Автотест машин~~ — готов (`-- --vehtest --map=N`).
 2. HUD: номера целей над объектами (проекция, у края — стрелка), список задач слева с номерами и расстоянием, мини-карта (верх-лево, 150 px,
    север вверху) + полная карта по тапу/клавише M; картинка карты печётся при --bake из рельефа/дорог/коробок коллизий → assets/maps/<key>_map.res.
    Антенну (мачта связи на базе) сделать целью в Долине.
