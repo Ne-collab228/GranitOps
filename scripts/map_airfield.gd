@@ -491,8 +491,10 @@ func _build_sites() -> void:
 	_build_radar()
 	await get_tree().process_frame
 	_build_village()
+	_build_bld_district()
 	_build_lz()
 	_build_field_cover()
+	_define_vehicles()
 	spawn_point = Vector3(SPAWN.x, float(pads[3].h) + 0.2, SPAWN.y)
 
 
@@ -1000,11 +1002,16 @@ func _build_east() -> void:
 	_drums(g, 276.0, -160.0, 3, y)
 	_truck(g, 245.0, -132.0, 1.4, y)
 	# --- склад ГСМ: 4 резервуара в обваловании, трубопровод, насосная, бензовозы
+	var gt := Geo.new()
 	for t in [Vector2(366, -171), Vector2(394, -171), Vector2(366, -149), Vector2(394, -149)]:
-		g.cyl("green", Transform3D(Basis(), Vector3(t.x, y + 4.56, t.y)), 6.0, 9.0, 22, true)
-		g.cyl("plate_dark", Transform3D(Basis(), Vector3(t.x, y + 9.45, t.y)), 6.1, 0.8, 22, false, true, 1.2)
+		gt.cyl("green", Transform3D(Basis(), Vector3(t.x, y + 4.56, t.y)), 6.0, 9.0, 22, true)
+		gt.cyl("plate_dark", Transform3D(Basis(), Vector3(t.x, y + 9.45, t.y)), 6.1, 0.8, 22, false, true, 1.2)
 		for k in 2:
-			g.box("rust", Vector3(t.x + 6.08, y + 4.6, t.y - 0.3 + k * 0.6), Vector3(0.06, 9.0, 0.06), 0.0, false)
+			gt.box("rust", Vector3(t.x + 6.08, y + 4.6, t.y - 0.3 + k * 0.6), Vector3(0.06, 9.0, 0.06), 0.0, false)
+	_burn["fuel"] = [gt.finish(self, "fuel_tanks")]
+	objectives["fuel"] = Vector3(380.0, y + 1.0, -160.0)
+	blast_fx["fuel"] = {"fires": [[Vector3(-14, 1.0, -11), 2.4], [Vector3(14, 1.0, -11), 2.4], [Vector3(-14, 1.0, 11), 2.4], [Vector3(14, 1.0, 11), 2.4]],
+		"blasts": [[0.5, Vector3(-14, 4, -11)], [1.1, Vector3(14, 4, 11)], [1.8, Vector3(14, 4, -11)], [2.4, Vector3(-14, 4, 11)]]}
 	g.cyl("rust", Transform3D(Basis(Vector3.BACK, PI * 0.5), Vector3(380.0, y + 0.7, -160.0)), 0.18, 44.0, 8, false)
 	g.cyl("rust", Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(380.0, y + 0.7, -168.0)), 0.18, 16.0, 8, false)
 	_building(g, 432.0, -195.0, 8.0, 6.0, 3.0, "plaster", {"w": [door(2.0)], "s": [win(3.0)]}, y, "iron")
@@ -1016,8 +1023,8 @@ func _build_east() -> void:
 	# --- КПП: проходная, шлагбаум, блоки «змейкой», мешки
 	var kx := KPP.x
 	var kz := KPP.y
-	_building(g, kx + 12.0, kz + 6.0, 4.0, 4.0, 2.6, "plaster", {"w": [door(1.3, 1.4)], "n": [win(1.2)], "s": [win(1.2)]}, y)
-	_block(Rect2(kx + 9, kz + 3, 6, 6))
+	_bld(g, "booth", kx + 12.0, kz + 6.0, -PI * 0.5)
+	_bld(g, "booth", kx - 12.0, kz - 3.0, PI * 0.5)
 	g.box("rust", Vector3(kx - 6.5, y + 0.6, kz - 3.0), Vector3(0.25, 1.2, 0.25))
 	g.box(C_WHITE, Vector3(kx - 1.0, y + 1.1, kz - 3.0), Vector3(11.0, 0.12, 0.12), 0.0, false)
 	for k in 5:
@@ -1202,12 +1209,13 @@ func _build_village() -> void:
 				var d := rng.randf_range(6.0, 7.5)
 				var m: Array = mats[k % mats.size()]
 				if k == 3:
-					_ruin(g, c.x, c.y, yaw + PI)
+					_bld(g, "ruin", c.x, c.y, yaw + PI)
 				else:
-					var fy := _house(g, c, yaw, w, d, m[0], m[1])
+					var kinds := ["house_fence", "house2", "house", "shop", "house_fence"]
+					_bld(g, kinds[k % 5], c.x, c.y, yaw)
 					if k == 1:
 						var ap := _lw(c.x, c.y, yaw, -w * 0.3, -d * 0.2)
-						_ammo_crate(ap.x, ap.y, fy, yaw)
+						_ammo_crate(ap.x, ap.y, ground(ap.x, ap.y) + 0.45, yaw)
 				# палисадник вдоль улицы с калиткой
 				var fa := c + to_street * (d * 0.5 + 5.0) - dir * 7.0
 				var fb := c + to_street * (d * 0.5 + 5.0) + dir * 7.0
@@ -1216,7 +1224,7 @@ func _build_village() -> void:
 				# сарай за домом
 				if k % 2 == 0:
 					var sc := c - to_street * (d * 0.5 + 6.0) + dir * rng.randf_range(-3.0, 3.0)
-					_house(g, sc, yaw, 4.0, 3.5, "wood_dark", "rust", 2.3, 1.0)
+					_bld(g, "shed", sc.x, sc.y, yaw)
 				k += 1
 			t += rng.randf_range(26.0, 32.0)
 	# колодец у перекрёстка
@@ -1605,7 +1613,7 @@ func _build_pines() -> void:
 	trunk.height = 4.0
 	var cs := chunk * cell
 	var groups := {}
-	var step := 8.5
+	var step := 9.0
 	var cnt := int(size / step)
 	var total := 0
 	for iz in cnt:
@@ -1615,7 +1623,12 @@ func _build_pines() -> void:
 			if absf(x) > size * 0.5 - 3.0 or absf(z) > size * 0.5 - 3.0:
 				continue
 			var f := _forest(x, z)
-			if f < 0.05 or rng.randf() > f * 0.92:
+			if f < 0.05:
+				continue
+			# рощи и просеки: низкочастотный шум режет ковёр на пятна, внутри пятна — густо, между — просветы
+			var cl := noise_b.get_noise_2d(x * 0.8 + 123.0, z * 0.8 - 57.0)
+			var clump := smoothstep(0.0, 0.3, cl)
+			if rng.randf() > f * (0.1 + 0.75 * clump):
 				continue
 			if _mask_at(x, z) != 0 or road_dist(x, z) < 7.0:
 				continue
@@ -1655,7 +1668,7 @@ func _build_pines() -> void:
 		mmi.material_override = mat
 		mmi.name = "pines"
 		add_child(mmi)
-		veg_ranges.append([mmi, 1400.0])
+		veg_ranges.append([mmi, 520.0])
 	print("ели: ", total)
 
 
@@ -1713,6 +1726,7 @@ func mission_objectives() -> Array:
 	return [
 		{"id": "jets", "title": "Подорвать штурмовики на перроне", "pos": objectives.jets, "done": false, "prompt": "Установить заряд", "hold": 2.5, "armed": false},
 		{"id": "radar", "title": "Уничтожить РЛС зенитной позиции", "pos": objectives.radar, "done": false, "prompt": "Установить заряд", "hold": 2.5, "armed": false},
+		{"id": "fuel", "title": "Подорвать склад ГСМ (резервуары на востоке)", "pos": objectives.fuel, "done": false, "prompt": "Установить заряд", "hold": 2.5, "armed": false},
 		{"id": "intel", "title": "Забрать полётные документы на КДП", "pos": objectives.intel, "done": false, "prompt": "Забрать документы", "hold": 1.2, "armed": false},
 		{"id": "lz", "title": "Выйти к точке эвакуации в лесу", "pos": objectives.lz, "done": false, "locked": true, "prompt": "", "hold": 0.0, "armed": false},
 	]
@@ -1721,7 +1735,7 @@ func mission_objectives() -> Array:
 func briefing() -> String:
 	return "Аэродром «Северный» прикрывает зенитная позиция на южном плато. Вы выходите к нему с края долины.\n\n" \
 		+ "• Подорвать три штурмовика на перроне\n• Уничтожить РЛС зенитной позиции за руслом\n" \
-		+ "• Забрать полётные документы в кабине КДП (лестница снаружи башни)\n• Выйти к точке эвакуации на лесной поляне на севере"
+		+ "• Подорвать резервуары склада ГСМ в восточной части базы\n• Забрать полётные документы в кабине КДП (лестница снаружи башни)\n• Выйти к точке эвакуации на лесной поляне на севере"
 
 
 func _process(delta: float) -> void:
@@ -1753,7 +1767,75 @@ func bench_views() -> Array:
 		["РЛС на плато", Vector3(280, 0, 250), Vector3(330, 5, 322)],
 		["деревня", Vector3(-440, 0, 240), Vector3(-360, 2, 330)],
 		["с юга на долину", Vector3(40, 0, 470), Vector3(0, 20, -300)],
+		["штаб полка и общежитие", Vector3(-20, 0, -140), Vector3(0, 4, -185)],
+		["гаражи и склад", Vector3(-370, 0, -135), Vector3(-370, 3, -170)],
+		["КПП", Vector3(150, 0, -200), Vector3(150, 2, -235)],
 	]
+
+
+# ------------------------------------------------------------------ здания (Bld)
+## Ставит здание Bld на землю, регистрирует точки укрытий для ИИ, площадь — в блокировки растительности.
+func _bld(g: Geo, kind: String, x: float, z: float, yaw: float, base_y := -1000.0) -> Dictionary:
+	var out := {}
+	var gy := ground(x, z) if base_y < -999.0 else base_y
+	var info: Dictionary = Bld.build(kind, g, rng, Vector3(x, gy, z), yaw, out)
+	var ext := maxf(float(info.get("w", 8.0)), float(info.get("d", 8.0))) * 0.5 + 2.0
+	_block(Rect2(x - ext, z - ext, ext * 2.0, ext * 2.0))
+	for cp in out.get("cover", []):
+		cover_points.append(cp)
+	return info
+
+
+## Служебный район на Bld: штаб полка, общежитие, гаражи, склады, сараи, руины — один Geo.
+func _build_bld_district() -> void:
+	var g := Geo.new()
+	var y := H0
+	_bld(g, "hq", 20.0, -182.0, 0.0, y)
+	_bld(g, "block", -60.0, -188.0, 0.0, y)
+	_bld(g, "garages", -350.0, -170.0, 0.0, y)
+	_bld(g, "garages", -420.0, -170.0, 0.0, y)
+	_bld(g, "warehouse", 305.0, -168.0, 0.0, y)
+	_bld(g, "warehouse", -140.0, -190.0, 0.0, y)
+	_bld(g, "shed", 330.0, -118.0, PI * 0.5, y)
+	_bld(g, "shed", -380.0, -190.0, 0.0, y)
+	_bld(g, "shed", 120.0, -190.0, 0.0, y)
+	# руины на подступах: разбитые корпуса за забором и на склоне
+	for rp in [[-480.0, 200.0, 0.5], [120.0, 190.0, 3.4], [-620.0, -120.0, 1.2], [620.0, -60.0, -1.6], [220.0, 350.0, 2.2]]:
+		_bld(g, "ruin", rp[0], rp[1], rp[2])
+	g.finish(self, "bld_district")
+
+
+# ------------------------------------------------------------------ машины
+## Стоянки и патрули (сами машины ставит Level.spawn_vehicles). Индексы дорог — по порядку roads в _setup_pads:
+## 0 долинная, 1 КПП, 2 кольцо внутри забора, 3 к перрону, 4 к складу ГСМ, 5 к РЛС, 6 к деревне, 7 запад, 8 лесная, 9 к поляне.
+func _define_vehicles() -> void:
+	var r := RADAR
+	var v := VILLAGE
+	vehicle_spots = [
+		# КПП и плац
+		[Vector3(KPP.x - 14.0, 0, KPP.y + 22.0), 1.57, "mil"], [Vector3(HQ.x + 22.0, 0, HQ.y + 36.0), 0.0, "mil"],
+		[Vector3(190, 0, -128), 1.57, "mil"], [Vector3(250, 0, -128), 1.57, "mil"],
+		# автопарк и ангары
+		[Vector3(-240, 0, -150), 0.0, "mil"], [Vector3(-200, 0, -150), 0.0, "mil"], [Vector3(-160, 0, -150), 3.1, "any"],
+		[Vector3(-110, 0, -115), 1.57, "mil"], [Vector3(-20, 0, -118), 1.57, "mil"],
+		# перрон и КДП
+		[Vector3(100, 0, -112), 0.0, "mil"], [Vector3(125, 0, -78), 1.57, "mil"], [Vector3(-60, 0, -30), 0.3, "mil"],
+		# склад ГСМ: у обвалования
+		[Vector3(330, 0, -150), 1.57, "mil"], [Vector3(440, 0, -140), 0.0, "mil"], [Vector3(405, 0, -203), 1.57, "mil"],
+		# ворота и плато РЛС
+		[Vector3(304, 0, 150), 0.0, "mil"], [Vector3(-436, 0, 150), 0.0, "mil"],
+		[Vector3(r.x - 40.0, 0, r.y + 12.0), 1.2, "mil"], [Vector3(r.x + 30.0, 0, r.y + 30.0), 3.0, "mil"],
+		# деревня: гражданские на улице и во дворах
+		[Vector3(v.x - 40.0, 0, v.y - 12.0), 0.9, "civ"], [Vector3(v.x + 10.0, 0, v.y + 22.0), -1.5, "civ"],
+		[Vector3(v.x + 40.0, 0, v.y + 12.0), 0.6, "civ"], [Vector3(v.x - 10.0, 0, v.y - 40.0), 0.0, "any"],
+		# брошенные на долинной дороге и в лесу
+		[Vector3(-300, 0, -258), 1.57, "civ"], [Vector3(250, 0, -262), 1.5, "civ"], [Vector3(-120, 0, -330), 0.3, "any"],
+		[Vector3(-250, 0, -443), 1.57, "any"],
+	]
+	vehicle_patrols = [[2, 2], [2, 3], [0, 2], [6, 2]]
+	if "--novehicles" in OS.get_cmdline_user_args():
+		vehicle_spots = []
+		vehicle_patrols = []
 
 
 # ------------------------------------------------------------------ противники
@@ -1791,6 +1873,14 @@ func _define_enemies() -> void:
 	_e(400.0, -182.0, 0)
 	_e(380.0, -150.0, 180)
 	_e(335.0, -115.0, 90, 0, [[335.0, -115.0], [430.0, -115.0], [430.0, -212.0], [335.0, -212.0]])
+	# штаб полка, общежитие, гаражи, склады
+	_e(20.0, -170.0, 0)
+	_e(8.0, -190.0, 180, 1)
+	_e(-60.0, -176.0, 0)
+	_e(-350.0, -158.0, 0)
+	_e(305.0, -152.0, 0, 1)
+	_e(-140.0, -178.0, 0)
+	_e(-70.0, -150.0, 90, 0, [[-70.0, -150.0], [30.0, -150.0], [30.0, -170.0], [-70.0, -170.0]])
 	# КПП
 	_e(KPP.x - 4.0, KPP.y - 10.0, 0)
 	_e(KPP.x + 8.0, KPP.y - 9.0, 20, 1)
