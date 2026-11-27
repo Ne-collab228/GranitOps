@@ -418,6 +418,7 @@ func _fill_settings() -> void:
 	var caps := [30, 45, 60, 90, 120, 0]
 	_opt("Ограничение FPS", ["30", "45", "60", "90", "120", "Без ограничения"], maxi(0, caps.find(int(d.fps_cap))), func(i): _cfg("fps_cap", caps[i]))
 	_check("Показывать FPS", bool(d.show_fps), func(v): _cfg("show_fps", v))
+	_check("Отправлять журналы разработчику", bool(d.get("send_logs", true)), func(v): _cfg("send_logs", v))
 	_check("Метки обнаруженных противников", bool(d.marks), func(v): _cfg("marks", v))
 	_check("Тепловизор: «чёрный горячий»", bool(d.get("thermal_bh", false)), func(v): _cfg("thermal_bh", v))
 	var rep_status := _label("Отчёт о работе игры (FPS, память, ошибки) — для разработчика", 13, Color(1, 1, 1, 0.6))

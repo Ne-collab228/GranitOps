@@ -82,7 +82,7 @@ func _ready() -> void:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		Settings.data.fps_cap = 0
 		Engine.max_fps = 0
-	if Game.autostart or "--play" in args or "--test" in args or "--touchtest" in args or Game.test_mode() or "--leaktest" in args:
+	if Game.autostart or "--play" in args or "--test" in args or "--touchtest" in args or Game.test_mode() or "--leaktest" in args or "--vehtest" in args:
 		Game.autostart = false
 		start_mission()
 		if "--test" in args:
@@ -861,17 +861,112 @@ func _test_hop(at: Vector3) -> Vector3:
 
 
 # ------------------------------------------------------------------ тест машин (--vehtest)
-## Игрок садится в ближайшую свободную машину, едет вперёд/поворачивает/тормозит; печатает скорость,
-## снимает test_veh_*.png; затем следит за патрульными машинами ИИ.
+## Сценарий: 1) игрок садится в ближайшую свободную машину и ездит (клавиатура W/S/A/D через Input.action_press,
+## затем «сенсорный» ввод t_move), печатает скорость/смещение/наклон/высоту над землёй, выходит;
+## 2) патрули ИИ: едут ли, не застревают ли, не улетают ли (вдали — кинематика, вблизи — физика);
+## 3) стрельба по машине до взрыва и высадка экипажа. Снимки test_veh_*.png. Аргументы: --map=N.
+func _veh_nearest_free(from: Vector3) -> Vehicle:
+	var best: Vehicle = null
+	for v in Game.vehicles:
+		if v.is_free() and (best == null or v.global_position.distance_to(from) < best.global_position.distance_to(from)):
+			best = v
+	return best
+
+
+func _phys_secs(sec: float) -> void:
+	var f0 := Engine.get_physics_frames()
+	while Engine.get_physics_frames() - f0 < int(sec * Engine.physics_ticks_per_second):
+		await get_tree().process_frame
+
+
+func _veh_state(v: Vehicle) -> String:
+	var gy := level.ground(v.global_position.x, v.global_position.z)
+	return "%s (%.0f, %.0f) v=%.1f км/ч up=%.2f над землёй %.2f к=%d/%d газ=%.1f/%.0f торм=%.0f курс=%.0f" % [v.vid, v.global_position.x, v.global_position.z, v.speed * 3.6, v.global_transform.basis.y.y, v.global_position.y - gy, v.wheels.filter(func(w): return w.is_in_contact()).size(), v.wheels.size(), v.throttle_in, v.engine_force, v.brake, rad_to_deg(atan2(v.global_transform.basis.z.x, v.global_transform.basis.z.z))]
+
+
+func _veh_drive(p: Player, best: Vehicle, label: String, kb: bool) -> void:
+	var phases := [["газ", Vector2(0, 1), 4.0], ["газ+вправо", Vector2(0.7, 1), 2.5], ["газ+влево", Vector2(-0.7, 1), 2.5], ["тормоз", Vector2(0, -1), 2.0], ["назад", Vector2(0, -1), 2.5]]
+	var k := 1
+	for ph in phases:
+		var mv: Vector2 = ph[1]
+		if kb:
+			Input.action_release("move_forward")
+			Input.action_release("move_back")
+			Input.action_release("move_left")
+			Input.action_release("move_right")
+			if mv.y > 0.0:
+				Input.action_press("move_forward")
+			elif mv.y < 0.0:
+				Input.action_press("move_back")
+			if mv.x > 0.0:
+				Input.action_press("move_right")
+			elif mv.x < 0.0:
+				Input.action_press("move_left")
+		else:
+			p.t_move = mv
+		var pf0 := Engine.get_physics_frames()
+		var pos0 := best.global_position
+		# время — в тиках физики (под программным GL кадры редкие, настенные часы врут)
+		while Engine.get_physics_frames() - pf0 < int(float(ph[2]) * Engine.physics_ticks_per_second):
+			p.hp = 100000.0
+			await get_tree().process_frame
+		print("VEH %s %-11s %s смещение %.1f м руль %.2f" % [label, ph[0], _veh_state(best), best.global_position.distance_to(pos0), best.steering])
+		if not kb:
+			await _shot("veh_%s_%d" % [label, k])
+		k += 1
+	for a in ["move_forward", "move_back", "move_left", "move_right"]:
+		Input.action_release(a)
+	p.t_move = Vector2.ZERO
+
+
+## Сколько вызовов отрисовки добавляет одна машина: кадр с ней и с скрытой, вблизи (10 м) и вдали (120 м).
+func _veh_draws() -> void:
+	var p: Player = Game.player
+	# точки обзора: двор базы (много машин рядом), поле (машины вдали)
+	for vp in [[Vector3(-8, 0, 12), Vector3(1, 0, -0.2)], [Vector3(-8, 0, 12), Vector3(-1, 0, 0.3)], [Vector3(60, 0, 40), Vector3(1, 0, 0)], [Vector3(150, 0, 20), Vector3(-1, 0, 0)]]:
+		p.global_position = _test_hop(vp[0])
+		await _frames(6)
+		var dirv: Vector3 = vp[1]
+		_aim(p, p.cam.global_position + dirv * 50.0)
+		var nn := 0
+		var nf := 0
+		for v in Game.vehicles:
+			var rel: Vector3 = v.global_position - p.cam.global_position
+			var d := rel.length()
+			if d < 450.0 and rel.normalized().dot(dirv) > 0.55:
+				if d < 55.0:
+					nn += 1
+				else:
+					nf += 1
+		var res := []
+		for vis in [true, false]:
+			for v in Game.vehicles:
+				v.visible = vis
+			await _frames(6)
+			_aim(p, p.cam.global_position + dirv * 50.0)
+			await _frames(2)
+			var tot := 0.0
+			for i in 8:
+				await RenderingServer.frame_post_draw
+				tot += float(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME))
+			res.append(tot / 8.0)
+			if vis:
+				await _shot("veh_draw_%d_%d" % [int(vp[0].x), int(dirv.x)])
+		for v in Game.vehicles:
+			v.visible = true
+		print("VEH вызовы: из точки ", vp[0], " машин вблизи (<55 м) ", nn, ", вдали ", nf, ": с машинами ", res[0], ", без ", res[1], ", разница ", res[0] - res[1])
+	get_tree().quit()
+
+
 func _vehtest() -> void:
 	var p: Player = Game.player
 	p.hp = 100000.0
 	await _frames(30)
-	print("VEH машин на карте: ", Game.vehicles.size(), " (ИИ: ", Game.vehicles.filter(func(v): return v.ai).size(), ")")
-	var best: Vehicle = null
-	for v in Game.vehicles:
-		if v.is_free() and (best == null or v.global_position.distance_to(p.global_position) < best.global_position.distance_to(p.global_position)):
-			best = v
+	if "--vehdraw" in OS.get_cmdline_user_args():
+		await _veh_draws()
+		return
+	print("VEH карта: ", level.get_class(), "  машин: ", Game.vehicles.size(), " (ИИ: ", Game.vehicles.filter(func(v): return v.ai).size(), ")")
+	var best := _veh_nearest_free(p.global_position)
 	if best == null:
 		print("VEH нет свободной машины")
 		get_tree().quit()
@@ -879,34 +974,119 @@ func _vehtest() -> void:
 	print("VEH садимся: ", best.vid, " в ", best.global_position.distance_to(p.global_position), " м")
 	p.global_position = best.exit_point()
 	await _frames(5)
+	await _shot("veh_00_out")
 	p.enter_vehicle(best)
 	await _frames(20)
-	await _shot("veh_0_in")
-	var phases := [["газ", Vector2(0, 1), 4.0], ["газ+вправо", Vector2(0.7, 1), 2.5], ["газ+влево", Vector2(-0.7, 1), 2.5], ["тормоз", Vector2(0, -1), 2.0], ["назад", Vector2(0, -1), 2.0]]
-	var k := 1
-	for ph in phases:
-		p.t_move = ph[1]
-		var t0 := Time.get_ticks_msec()
-		var pos0 := best.global_position
-		while Time.get_ticks_msec() - t0 < int(float(ph[2]) * 1000.0):
-			p.hp = 100000.0
-			await get_tree().process_frame
-		print("VEH %-12s скорость %5.1f км/ч  смещение %5.1f м  наклон %.2f  руль %.2f" % [ph[0], best.speed * 3.6, best.global_position.distance_to(pos0), best.global_transform.basis.y.y, best.steering])
-		await _shot("veh_%d" % k)
-		k += 1
-	p.t_move = Vector2.ZERO
+	await _shot("veh_01_in")
+	if not "--vehai" in OS.get_cmdline_user_args():
+		await _veh_drive(p, best, "kb", true)
+		await _veh_drive(p, best, "touch", false)
+	if "--vehquick" in OS.get_cmdline_user_args():
+		get_tree().quit()
+		return
 	p.t_interact = true
 	await _frames(3)
 	p.t_interact = false
 	await _frames(10)
-	print("VEH вышли: в машине=", p.vehicle != null, " поз. игрока ", p.global_position)
+	print("VEH вышли: в машине=", p.vehicle != null, " поз. игрока ", p.global_position, " расст. до машины ", p.global_position.distance_to(best.global_position))
+	# --- ИИ-патрули: сначала игрок далеко (кинематика), затем рядом (физика)
+	var ais: Array = Game.vehicles.filter(func(v): return v.ai)
+	for v in ais:
+		print("VEH ИИ старт: ", v.ai_debug())
+	# игрок — в точку, наиболее удалённую от ИИ-машин (чтобы они не заметили и не высадились сразу)
+	var far_pt := Vector3.ZERO
+	var far_d := -1.0
+	for cand in [Vector3(0, 0, 0), Vector3(0, 0, 300), Vector3(-300, 0, 300), Vector3(300, 0, 300), Vector3(0, 0, -300), Vector3(-300, 0, -300), Vector3(300, 0, 300)]:
+		var md := 1e9
+		for v in ais:
+			md = minf(md, v.global_position.distance_to(cand))
+		if md > far_d and absf(cand.x) < level.play_half - 20.0 and absf(cand.z) < level.play_half - 20.0:
+			far_d = md
+			far_pt = cand
+	p.global_position = _test_hop(far_pt)
+	print("VEH игрок ушёл в ", far_pt, " (до ближайшей ИИ-машины ", snappedf(far_d, 1.0), " м)")
+	var start := {}
+	for v in ais:
+		start[v] = v.global_position
+	var maxfly := 0.0
 	for i in 6:
+		await _phys_secs(10.0)
+		p.hp = 100000.0
+		for v in ais:
+			if is_instance_valid(v) and not v.dead:
+				maxfly = maxf(maxfly, v.global_position.y - level.ground(v.global_position.x, v.global_position.z))
+		if i % 2 == 1:
+			for v in ais:
+				print("VEH ИИ(вдали) ", v.ai_debug())
+	for v in ais:
+		print("VEH ИИ ", v.vid, " проехал ", snappedf(v.global_position.distance_to(start[v]), 0.1), " м, кин=", v._kin, " состояние=", v.ai_state)
+	print("VEH ИИ макс. высота над землёй (кинематика): ", snappedf(maxfly, 0.01))
+	# --- ближайший патруль вблизи (физика): игрок стоит в стороне от дороги
+	var near: Vehicle = null
+	for v in ais:
+		if v.ai and v.ai_state == 0 and not v.dead:
+			near = v
+			break
+	if near != null:
+		var side := (-near.global_transform.basis.z).cross(Vector3.UP).normalized()
+		p.global_position = _test_hop(near.global_position + side * 120.0 + (-near.global_transform.basis.z) * 40.0)
+		maxfly = 0.0
+		var pos0 := near.global_position
+		for i in 12:
+			await _phys_secs(2.0)
+			p.hp = 100000.0
+			maxfly = maxf(maxfly, near.global_position.y - level.ground(near.global_position.x, near.global_position.z))
+			print("VEH ИИ(рядом) ", near.ai_debug())
+			if i == 3:
+				await _shot("veh_ai_road")
+			if i == 11 and near.global_position.distance_to(pos0) < 200.0:
+				var sd := (-near.global_transform.basis.z).cross(Vector3.UP).normalized()
+				p.global_position = _test_hop(near.global_position + sd * 14.0)
+				await _frames(5)
+				_aim(p, near.global_position + Vector3(0, 1, 0))
+				await _frames(3)
+				await _shot("veh_ai_stuck")
+		print("VEH ИИ рядом проехал ", snappedf(near.global_position.distance_to(pos0), 0.1), " м, макс. над землёй ", snappedf(maxfly, 0.01), " up=", snappedf(near.global_transform.basis.y.y, 0.01))
+	else:
+		print("VEH нет ИИ-машины в состоянии «едет»")
+	if "--vehstop" in OS.get_cmdline_user_args():
+		get_tree().quit()
+		return
+	# --- стрельба до взрыва
+	var tgt: Vehicle = null
+	for v in ais:
+		if is_instance_valid(v) and v.ai and not v.dead and not v.crew.is_empty():
+			tgt = v
+			break
+	if tgt == null:
+		tgt = _veh_nearest_free(p.global_position)
+	if tgt != null:
+		p.global_position = _test_hop(tgt.global_position + Vector3(0, 0, 22))
+		await _frames(10)
+		var crew0 := Game.enemies.size()
+		print("VEH цель: ", tgt.vid, " hp=", tgt.hp, "/", tgt.hp_max, " ai=", tgt.ai, " экипаж=", tgt.crew.size())
+		var shots := 0
+		var seen_stop := false
+		var t0 := Time.get_ticks_msec()
+		var pf1 := Engine.get_physics_frames()
+		while not tgt.dead and Engine.get_physics_frames() - pf1 < 40 * int(Engine.physics_ticks_per_second):
+			p.hp = 100000.0
+			_aim(p, tgt.global_position + Vector3(0, 1.0, 0))
+			p.t_fire = (shots % 30) < 20
+			shots += 1
+			await get_tree().process_frame
+			if tgt.ai_state == 1 and not seen_stop:
+				seen_stop = true
+				print("VEH экипаж высадился/тревога: врагов ", Game.enemies.size(), " (было ", crew0, "), машина hp=", int(tgt.hp))
+			if shots == 60:
+				await _shot("veh_shoot")
+		p.t_fire = false
+		print("VEH цель взорвана: ", tgt.dead, " за ", snappedf(float(Engine.get_physics_frames() - pf1) / Engine.physics_ticks_per_second, 0.1), " с игры")
+		await _frames(8)
+		await _shot("veh_boom")
 		await _frames(60)
-		var s := ""
-		for v in Game.vehicles:
-			if v.ai or v.ai_state == 1:
-				s += "[%s %s v=%.0f kin=%s st=%d] " % [v.vid, Vector2(v.global_position.x, v.global_position.z).round(), v.speed * 3.6, v._kin, v.ai_state]
-		print("VEH ИИ: ", s)
+		await _shot("veh_wreck")
+		print("VEH врагов было ", crew0, " стало ", Game.enemies.size())
 	get_tree().quit()
 
 
