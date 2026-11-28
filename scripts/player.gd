@@ -156,19 +156,22 @@ func _vehicle_frame(delta: float) -> void:
 		return
 	_veh_interact_prev = in_interact
 	# тело игрока едет с машиной (враги целятся в место водителя — aim_point)
-	global_position = v.global_position
+	# Берём ИНТЕРПОЛИРОВАННЫЙ transform: физика 30 Гц, кадры 12–30 fps; модель машины рисуется с интерполяцией,
+	# а сырой global_transform меняется ступенями — камера «дёргалась» относительно кузова вперёд-назад.
+	var vxf := v.get_global_transform_interpolated()
+	global_position = vxf.origin
 	# камера: орбита вокруг машины (свайп/мышь — yaw/pitch), на ходу сама уходит за корму
 	if look_delta.length() > 0.001:
 		_veh_look_t = 1.6
 	_veh_look_t = maxf(0.0, _veh_look_t - delta)
-	var f := -v.global_transform.basis.z
+	var f := -vxf.basis.z
 	if _veh_look_t <= 0.0 and absf(v.speed) > 2.5:
 		var hy := atan2(-f.x, -f.z) if v.speed > 0.0 else atan2(f.x, f.z)
 		yaw = lerp_angle(yaw, hy, minf(1.0, delta * 1.8))
 		pitch = lerpf(pitch, -0.15, minf(1.0, delta * 1.2))
 	pitch = clampf(pitch, -0.9, 0.5)
 	var bb := v.model.body_aabb
-	var target := v.global_position + Vector3(0, bb.end.y + 0.6, 0)
+	var target := vxf.origin + Vector3(0, bb.end.y + 0.6, 0)
 	var dist := bb.size.z * 0.9 + 4.0
 	var elev := clampf(0.22 - pitch, -0.2, 1.1)
 	var want := target + Basis(Vector3.UP, yaw) * Vector3(0, sin(elev) * dist, cos(elev) * dist)

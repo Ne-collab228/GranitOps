@@ -50,6 +50,16 @@ var _hit_cool := {}
 var _avoid_side := 0.0
 var _avoid_t := 0.0
 var _route_ang := 0.0
+## Удары: порог (м/с мгновенной потери скорости), накопленный за шаг физики удар, падение.
+const CRASH_MIN := 4.5     # мельче — толчок, урона нет
+const CRASH_K := 5.0       # урон машине = (dv − порог)² × K (dv 12 м/с ≈ 40% корпуса, 20 м/с — уничтожена)
+const DRIVER_DV := 9.0     # водитель страдает от ударов сильнее этого dv
+var _crash_dv := 0.0       # максимальный dv контакта, пришедший из _integrate_forces
+var _crash_pos := Vector3.ZERO
+var _crash_cool := 0.0
+var _air_t := 0.0
+var _air_vy := 0.0
+var _was_air := false
 
 
 func setup(id: String, color_i: int, xf: Transform3D) -> void:
@@ -85,6 +95,8 @@ func _ready() -> void:
 	angular_damp = 0.9
 	linear_damp = 0.05
 	can_sleep = true
+	contact_monitor = true
+	max_contacts_reported = 6
 	var bb := model.body_aabb
 	var clear := model.wheel_r * 1.1
 	var cs := CollisionShape3D.new()
@@ -189,9 +201,86 @@ func seat_pos() -> Vector3:
 	return global_transform * Vector3(-bb.size.x * 0.2, bb.end.y * 0.72, bb.position.z * 0.25)
 
 
+## Импульсы контактов кузова (стены, деревья, другие машины): запоминаем сильнейший удар шага, урон — в _physics_process.
+func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
+	if dead or freeze:
+		return
+	var n := state.get_contact_count()
+	if n == 0:
+		return
+	var sum := Vector3.ZERO
+	var at := Vector3.ZERO
+	for i in n:
+		var imp := state.get_contact_impulse(i)
+		sum += imp
+		if imp.length() > at.length():
+			at = state.get_contact_collider_position(i)
+	var dv := sum.length() / maxf(mass, 1.0)
+	if dv > _crash_dv:
+		_crash_dv = dv
+		_crash_pos = at
+
+
+## Урон от удара/падения: dv — потеря скорости, м/с. Мелкие толчки (< CRASH_MIN) не считаются.
+func crash(dv: float, pos: Vector3) -> void:
+	if dead or dv < CRASH_MIN or _crash_cool > 0.0:
+		return
+	_crash_cool = 0.25  # один удар приходит несколькими шагами подряд
+	var x := dv - CRASH_MIN
+	var dmg := x * x * CRASH_K
+	var snd := "car_crash" if Sfx.streams.has("car_crash") else "hit_metal"
+	Sfx.play_at(snd, pos, clampf(-10.0 + dv * 0.8, -10.0, 4.0), randf_range(0.55, 0.8), 12.0, 140.0)
+	if dv > 7.0:
+		Game.fx.emit("metal", pos, Vector3.UP)
+	if player != null:
+		player.shake(clampf(dv * 0.05, 0.1, 1.0))
+		if dv > DRIVER_DV:
+			player.take_damage(minf(60.0, (dv - DRIVER_DV) * 4.5), global_position + global_transform.basis.z * 3.0)
+	if Game.test_mode():
+		print("VEH УДАР dv=", snappedf(dv, 0.1), " урон=", snappedf(dmg, 1.0), " hp=", snappedf(hp, 1.0))
+	hp -= dmg
+	if hp <= 0.0:
+		explode(false)
+	elif hp < hp_max * 0.3 and _burn_t <= 0.0:
+		_burn_t = 999.0
+		Game.fx.fire(global_transform * Vector3(0, model.body_aabb.end.y * 0.6, model.body_aabb.position.z * 0.6), 0.6)
+
+
+## Падение: скорость вертикального приземления колёсами (подвеска гасит часть).
+func _crash_check(delta: float) -> void:
+	_crash_cool = maxf(0.0, _crash_cool - delta)
+	if _crash_dv > 0.0:
+		var dv := _crash_dv
+		_crash_dv = 0.0
+		crash(dv, _crash_pos)
+	if freeze:
+		_air_t = 0.0
+		_was_air = false
+		return
+	var grounded := false
+	for w in wheels:
+		if w.is_in_contact():
+			grounded = true
+			break
+	if grounded:
+		if _was_air and _air_t > 0.25 and _air_vy < -7.0:
+			crash(-_air_vy * 0.75, global_position)
+		_air_t = 0.0
+		_air_vy = 0.0
+		_was_air = false
+	else:
+		_air_t += delta
+		_air_vy = minf(_air_vy, linear_velocity.y)
+		if _air_t > 0.1:
+			_was_air = true
+
+
 func _physics_process(delta: float) -> void:
 	if dead:
 		_burn_t -= delta
+		return
+	_crash_check(delta)
+	if dead:
 		return
 	speed = linear_velocity.dot(-global_transform.basis.z)
 	# страховка от физических «выстрелов» (глубокое проникновение при пробуждении/телепорте): скорость не больше 1.6 vmax

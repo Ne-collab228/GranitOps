@@ -2001,7 +2001,10 @@ func spawn_vehicles(parent: Node) -> void:
 
 ## Ставит машину на землю (по склону), если место свободно (иначе пробует сдвиги до jitter м). null — не влезла.
 func _place_vehicle(parent: Node, id: String, color: int, x: float, z: float, yaw: float, r: RandomNumberGenerator, jitter := 4.0) -> Vehicle:
-	var m: VehicleModel = load("res://assets/vehicles/%s.res" % id)
+	var m: VehicleModel = load("res://assets/vehicles/%s.res" % id) as VehicleModel
+	if m == null:
+		push_warning("Машина %s: модель не загрузилась, пропущена" % id)
+		return null
 	var bb := m.body_aabb
 	var space := get_world_3d().direct_space_state
 	for t in 6:
