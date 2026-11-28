@@ -227,6 +227,7 @@ func _fire() -> void:
 	if fl > 0.0:
 		Game.fx.light(muzzle, 2.2, 7.0, 0.05)
 	Sfx.play(d.sound, float(d.vol), float(d.pitch) * randf_range(0.97, 1.03))
+	Sfx.casing(1.0 if d.get("bolt", false) or d.get("pump", false) else 0.32)
 	Game.noise(player.global_position, float(d.noise))
 	if d.get("bolt", false):
 		bolt_t = 1.05

@@ -1,0 +1,230 @@
+# Источники звуков
+
+Все записи — CC0 (общественное достояние), использование в играх без отчислений и без обязательного указания авторства.
+Файлы получены с OpenGameArt.org (страницы ниже); обработаны `tools/build_sfx.py` (обрезка, нормализация, моно, OGG Vorbis).
+Для рикошета, свиста пуль, глушителя и рации записи дополнительно обработаны (высота, фильтры, наложение).
+
+## Паки
+
+- **100 CC0 metal and wood SFX** — автор: rubberduck, лицензия: CC0 — https://opengameart.org/content/100-cc0-metal-and-wood-sfx
+- **2 Gun Reloads** — автор: StarNinjas, лицензия: CC0 — https://opengameart.org/content/2-gun-reloads
+- **25 CC0 bang / firework SFX** — автор: rubberduck, лицензия: CC0 — https://opengameart.org/content/25-cc0-bang-firework-sfx
+- **35 wooden cracks/hits/destructions** — автор: Independent.nu, лицензия: CC0 — https://opengameart.org/content/35-wooden-crackshitsdestructions
+- **37 hits/punches** — автор: Independent.nu, лицензия: CC0 — https://opengameart.org/content/37-hitspunches
+- **75 CC0 breaking / falling / hit sfx** — автор: rubberduck, лицензия: CC0 — https://opengameart.org/content/75-cc0-breaking-falling-hit-sfx
+- **Beach Ocean Waves** — автор: jasinski, лицензия: CC0 — https://opengameart.org/content/beach-ocean-waves
+- **Chunky Explosion** — автор: Joth, лицензия: CC0 — https://opengameart.org/content/chunky-explosion
+- **Crash Collision** — автор: qubodup, лицензия: CC0 — https://opengameart.org/content/crash-collision
+- **Different steps on wood, stone, leaves, gravel and mud** — автор: TinyWorlds, лицензия: CC0 — https://opengameart.org/content/different-steps-on-wood-stone-leaves-gravel-and-mud
+- **Explosion somewhere far** — автор: pauliuw, лицензия: CC0 — https://opengameart.org/content/explosion-somewhere-far
+- **Explosions** — автор: EZduzziteh, лицензия: CC0 — https://opengameart.org/content/explosions-4
+- **Fabric Rustling** — автор: Iochi Glaucus, лицензия: CC0 — https://opengameart.org/content/fabric-rustling
+- **Fantozzi's Footsteps (Grass/Sand & Stone)** — автор: Fantozzi, лицензия: CC0 — https://opengameart.org/content/fantozzis-footsteps-grasssand-stone
+- **Fireplace Sound loop** — автор: PagDev, лицензия: CC0 — https://opengameart.org/content/fireplace-sound-loop
+- **Frequency Static Sound Effects** — автор: bretbernhoft, лицензия: CC0 — https://opengameart.org/content/frequency-static-sound-effects
+- **GUI Sound Effects** — автор: Lokif, лицензия: CC0 — https://opengameart.org/content/gui-sound-effects
+- **Gun reload, lock or click sound** — автор: pauliuw, лицензия: CC0 — https://opengameart.org/content/gun-reload-lock-or-click-sound
+- **Gun Reload Sound Effects** — автор: BMacZero, лицензия: CC0 — https://opengameart.org/content/gun-reload-sound-effects
+- **Gun reload sounds** — автор: SpringySpringo, лицензия: CC0 — https://opengameart.org/content/gun-reload-sounds
+- **Handgun Reload Sound Effect** — автор: zer0_sol, лицензия: CC0 — https://opengameart.org/content/handgun-reload-sound-effect
+- **Heartbeat sounds** — автор: bart, лицензия: CC0 — https://opengameart.org/content/heartbeat-sounds
+- **Hollywood-style pistol silencer sound effect** — автор: bart, лицензия: CC0 — https://opengameart.org/content/hollywood-style-pistol-silencer-sound-effect
+- **Impact** — автор: qubodup, лицензия: CC0 — https://opengameart.org/content/impact
+- **Mechanical Explosion** — автор: Spring Spring, лицензия: CC0 — https://opengameart.org/content/mechanical-explosion
+- **Metal footsteps on concrete** — автор: Thimras, лицензия: CC0 — https://opengameart.org/content/metal-footsteps-on-concrete
+- **Metal Impact Sounds** — автор: BMacZero, лицензия: CC0 — https://opengameart.org/content/metal-impact-sounds
+- **Mild Wind Background Noise** — автор: Bashar3A, лицензия: CC0 — https://opengameart.org/content/mild-wind-background-noise
+- **Muffled Distant Explosion** — автор: NenadSimic, лицензия: CC0 — https://opengameart.org/content/muffled-distant-explosion
+- **Park ambiences** — автор: Thimras, лицензия: CC0 — https://opengameart.org/content/park-ambiences
+- **racing car engine sound loops** — автор: domasx2, лицензия: CC0 — https://opengameart.org/content/racing-car-engine-sound-loops
+- **Sea and river wave sounds** — автор: RandomMind, лицензия: CC0 — https://opengameart.org/content/sea-and-river-wave-sounds
+- **Shotgun Reload Sound effects** — автор: zer0_sol, лицензия: CC0 — https://opengameart.org/content/shotgun-reload-sound-effects
+- **Shovel Sound** — автор: themightyglider, лицензия: CC0 — https://opengameart.org/content/shovel-sound
+- **Solo Seagull Sound Effects** — автор: Rango Mango, лицензия: CC0 — https://opengameart.org/content/solo-seagull-sound-effects
+- **Sound Effects Pack** — автор: OwlishMedia, лицензия: CC0 — https://opengameart.org/content/sound-effects-pack
+- **The Free Firearm Sound Library** — автор: Ben Jaszczak, Brian Nelson, Kevin Heras, Matthew Nanney (The Free Firearm Sound Library, Still North Media), лицензия: CC0 — https://opengameart.org/content/the-free-firearm-sound-library
+- **windy ambient noise** — автор: Some Weirdo, лицензия: CC0 — https://opengameart.org/content/windy-ambient-noise
+
+## Какой звук из каких паков
+
+- `shot_ar.ogg` — the-free-firearm-sound-library
+- `shot_ar_2.ogg` — 
+- `shot_ar_far.ogg` — 
+- `shot_ar_far_2.ogg` — 
+- `shot_ar_supp.ogg` — hollywood-style-pistol-silencer-sound-effect
+- `shot_ar_supp_2.ogg` — 
+- `shot_akm.ogg` — the-free-firearm-sound-library
+- `shot_akm_2.ogg` — 
+- `shot_akm_3.ogg` — 
+- `shot_akm_far.ogg` — 
+- `shot_akm_far_2.ogg` — 
+- `shot_akm_supp.ogg` — 
+- `shot_akm_supp_2.ogg` — 
+- `shot_smg.ogg` — the-free-firearm-sound-library
+- `shot_smg_2.ogg` — 
+- `shot_smg_3.ogg` — 
+- `shot_smg_far.ogg` — 
+- `shot_smg_far_2.ogg` — 
+- `shot_smg_supp.ogg` — 
+- `shot_smg_supp_2.ogg` — 
+- `shot_lmg.ogg` — the-free-firearm-sound-library
+- `shot_lmg_2.ogg` — 
+- `shot_lmg_3.ogg` — 
+- `shot_lmg_far.ogg` — 
+- `shot_lmg_far_2.ogg` — 
+- `shot_lmg_supp.ogg` — 
+- `shot_lmg_supp_2.ogg` — 
+- `shot_dmr.ogg` — the-free-firearm-sound-library
+- `shot_dmr_2.ogg` — 
+- `shot_dmr_far.ogg` — 
+- `shot_dmr_far_2.ogg` — 
+- `shot_dmr_supp.ogg` — 
+- `shot_dmr_supp_2.ogg` — 
+- `shot_sr.ogg` — the-free-firearm-sound-library
+- `shot_sr_2.ogg` — 
+- `shot_sr_3.ogg` — 
+- `shot_sr_far.ogg` — 
+- `shot_sr_far_2.ogg` — 
+- `shot_sr_supp.ogg` — 
+- `shot_sr_supp_2.ogg` — 
+- `shot_pistol.ogg` — the-free-firearm-sound-library
+- `shot_pistol_2.ogg` — 
+- `shot_pistol_3.ogg` — 
+- `shot_pistol_far.ogg` — 
+- `shot_pistol_far_2.ogg` — 
+- `shot_pistol_supp.ogg` — 
+- `shot_pistol_supp_2.ogg` — 
+- `shot_sg.ogg` — the-free-firearm-sound-library
+- `shot_sg_2.ogg` — 
+- `shot_sg_3.ogg` — 
+- `shot_sg_far.ogg` — 
+- `shot_sg_far_2.ogg` — 
+- `shot_sg_supp.ogg` — 
+- `shot_sg_supp_2.ogg` — 
+- `mag_out.ogg` — 2-gun-reloads, gun-reload-lock-or-click-sound, gun-reload-sound-effects, gun-reload-sounds, handgun-reload-sound-effect, shotgun-reload-sound-effects
+- `mag_out_2.ogg` — 
+- `mag_out_3.ogg` — 
+- `mag_in.ogg` — 
+- `mag_in_2.ogg` — 
+- `mag_in_3.ogg` — 
+- `mag_in_4.ogg` — 
+- `bolt.ogg` — 
+- `bolt_2.ogg` — 
+- `bolt_3.ogg` — 
+- `bolt_action.ogg` — 
+- `bolt_action_2.ogg` — 
+- `bolt_action_3.ogg` — 
+- `pistol_slide.ogg` — 
+- `pistol_slide_2.ogg` — 
+- `pistol_slide_3.ogg` — 
+- `dry.ogg` — 
+- `dry_2.ogg` — 
+- `dry_3.ogg` — 
+- `casing.ogg` — metal-impact-sounds
+- `casing_2.ogg` — 
+- `casing_3.ogg` — 
+- `casing_4.ogg` — 
+- `pin.ogg` — 100-cc0-metal-and-wood-sfx
+- `pin_2.ogg` — 
+- `pin_3.ogg` — 
+- `cloth.ogg` — fabric-rustling
+- `cloth_2.ogg` — 
+- `cloth_3.ogg` — 
+- `cloth_4.ogg` — 
+- `bounce.ogg` — 100-cc0-metal-and-wood-sfx, metal-impact-sounds
+- `bounce_2.ogg` — 
+- `bounce_3.ogg` — 
+- `hit_dirt.ogg` — 75-cc0-breaking-falling-hit-sfx, metal-impact-sounds, shovel-sound
+- `hit_dirt_2.ogg` — 
+- `hit_dirt_3.ogg` — 
+- `hit_dirt_4.ogg` — 
+- `hit_concrete.ogg` — 75-cc0-breaking-falling-hit-sfx, impact
+- `hit_concrete_2.ogg` — 
+- `hit_concrete_3.ogg` — 
+- `hit_concrete_4.ogg` — 
+- `hit_metal.ogg` — 100-cc0-metal-and-wood-sfx, impact
+- `hit_metal_2.ogg` — 
+- `hit_metal_3.ogg` — 
+- `hit_metal_4.ogg` — 
+- `hit_sheet.ogg` — 100-cc0-metal-and-wood-sfx
+- `hit_sheet_2.ogg` — 
+- `hit_sheet_3.ogg` — 
+- `hit_sheet_4.ogg` — 
+- `hit_wood.ogg` — 100-cc0-metal-and-wood-sfx, 35-wooden-crackshitsdestructions
+- `hit_wood_2.ogg` — 
+- `hit_wood_3.ogg` — 
+- `hit_wood_4.ogg` — 
+- `hit_body.ogg` — 37-hitspunches, impact
+- `hit_body_2.ogg` — 
+- `hit_body_3.ogg` — 
+- `hit_body_4.ogg` — 
+- `hitmark.ogg` — metal-impact-sounds
+- `killmark.ogg` — metal-impact-sounds
+- `ricochet.ogg` — 
+- `ricochet_2.ogg` — 
+- `ricochet_3.ogg` — 
+- `whizz.ogg` — the-free-firearm-sound-library
+- `whizz_2.ogg` — 
+- `whizz_3.ogg` — 
+- `whizz_4.ogg` — 
+- `explosion.ogg` — 25-cc0-bang-firework-sfx, chunky-explosion, explosions-4, mechanical-explosion
+- `explosion_2.ogg` — 
+- `explosion_3.ogg` — 
+- `explosion_far.ogg` — explosion-somewhere-far, muffled-distant-explosion
+- `explosion_far_2.ogg` — 
+- `explosion_far_3.ogg` — 
+- `explosion_small.ogg` — 
+- `explosion_small_2.ogg` — 
+- `engine_idle.ogg` — racing-car-engine-sound-loops
+- `engine_run.ogg` — 
+- `engine_high.ogg` — 
+- `car_crash.ogg` — 100-cc0-metal-and-wood-sfx, 75-cc0-breaking-falling-hit-sfx, crash-collision, metal-impact-sounds
+- `car_crash_2.ogg` — 
+- `car_crash_3.ogg` — 
+- `step_dirt.ogg` — fantozzis-footsteps-grasssand-stone, sound-effects-pack
+- `step_dirt_2.ogg` — 
+- `step_dirt_3.ogg` — 
+- `step_dirt_4.ogg` — 
+- `step_dirt_5.ogg` — 
+- `step_dirt_6.ogg` — 
+- `step_dirt_7.ogg` — 
+- `step_dirt_8.ogg` — 
+- `step_gravel.ogg` — different-steps-on-wood-stone-leaves-gravel-and-mud, fantozzis-footsteps-grasssand-stone
+- `step_gravel_2.ogg` — 
+- `step_gravel_3.ogg` — 
+- `step_gravel_4.ogg` — 
+- `step_concrete.ogg` — fantozzis-footsteps-grasssand-stone, sound-effects-pack
+- `step_concrete_2.ogg` — 
+- `step_concrete_3.ogg` — 
+- `step_concrete_4.ogg` — 
+- `step_concrete_5.ogg` — 
+- `step_concrete_6.ogg` — 
+- `step_concrete_7.ogg` — 
+- `step_concrete_8.ogg` — 
+- `step_metal.ogg` — metal-footsteps-on-concrete
+- `step_metal_2.ogg` — 
+- `step_metal_3.ogg` — 
+- `step_metal_4.ogg` — 
+- `step_metal_5.ogg` — 
+- `step_metal_6.ogg` — 
+- `step_wood.ogg` — different-steps-on-wood-stone-leaves-gravel-and-mud
+- `step_wood_2.ogg` — 
+- `step_wood_3.ogg` — 
+- `ui_click.ogg` — gui-sound-effects
+- `ui_click_2.ogg` — 
+- `ui_click_3.ogg` — 
+- `beep.ogg` — gui-sound-effects
+- `beep_2.ogg` — 
+- `radio.ogg` — frequency-static-sound-effects
+- `radio_2.ogg` — 
+- `radio_3.ogg` — 
+- `heartbeat.ogg` — heartbeat-sounds
+- `fire.ogg` — fireplace-sound-loop
+- `amb_valley.ogg` — mild-wind-background-noise, park-ambiences, windy-ambient-noise
+- `amb_airfield.ogg` — 
+- `amb_pass.ogg` — 
+- `amb_port.ogg` — beach-ocean-waves, sea-and-river-wave-sounds, solo-seagull-sound-effects
+
+## Не заменено (оставлено сгенерированным, `tools/gen_assets.py`)
+
+- `ring.wav` — звон в ушах после взрыва (синтезированный тон).

@@ -9,37 +9,37 @@ const SLOT_TITLES := ["ОСНОВНОЕ", "ВТОРОЕ", "ПИСТОЛЕТ"]
 const WEAPONS := {
 	"ar": {"id": "ar", "name": "ШВ-5", "cal": "5,56 мм", "cls": "Штурмовая винтовка", "mag": 30, "reserve": 150, "rpm": 720.0, "dmg": 34.0,
 		"speed": 880.0, "auto": true, "recoil": Vector2(0.95, 0.4), "hip": 2.4, "ads": 0.07, "ads_time": 0.2, "reload": 2.3,
-		"sound": "shot_rifle", "pitch": 1.0, "zero": 100.0, "drag": 0.28, "kick": 0.03, "tracer": 3, "noise": 120.0,
+		"sound": "shot_ar", "pitch": 1.0, "zero": 100.0, "drag": 0.28, "kick": 0.03, "tracer": 3, "noise": 120.0,
 		"slots": ["optic", "muzzle", "barrel", "grip", "mag", "stock", "laser", "camo"], "optics": ["iron", "rds", "holo", "x3", "x6", "thermal"],
 		"defaults": {"optic": "rds", "camo": "sand"}},
 	"akm": {"id": "akm", "name": "АКМ-7", "cal": "7,62 мм", "cls": "Штурмовая винтовка", "mag": 30, "reserve": 120, "rpm": 600.0, "dmg": 43.0,
 		"speed": 715.0, "auto": true, "recoil": Vector2(1.35, 0.62), "hip": 2.7, "ads": 0.1, "ads_time": 0.23, "reload": 2.5,
-		"sound": "shot_rifle", "pitch": 0.86, "zero": 100.0, "drag": 0.36, "kick": 0.038, "tracer": 3, "noise": 130.0,
+		"sound": "shot_akm", "pitch": 1.0, "zero": 100.0, "drag": 0.36, "kick": 0.038, "tracer": 3, "noise": 130.0,
 		"slots": ["optic", "muzzle", "barrel", "grip", "mag", "stock", "laser", "camo"], "optics": ["iron", "rds", "holo", "x3", "thermal"],
 		"defaults": {"optic": "iron", "camo": "wood"}},
 	"smg": {"id": "smg", "name": "ПП-9 «Шершень»", "cal": "9 мм", "cls": "Пистолет-пулемёт", "mag": 30, "reserve": 180, "rpm": 900.0, "dmg": 25.0,
 		"speed": 400.0, "auto": true, "recoil": Vector2(0.62, 0.34), "hip": 1.7, "ads": 0.14, "ads_time": 0.15, "reload": 1.9,
-		"sound": "shot_pistol", "pitch": 1.12, "zero": 50.0, "drag": 0.62, "kick": 0.02, "tracer": 0, "noise": 85.0,
+		"sound": "shot_smg", "pitch": 1.0, "zero": 50.0, "drag": 0.62, "kick": 0.02, "tracer": 0, "noise": 85.0,
 		"slots": ["optic", "muzzle", "grip", "mag", "stock", "laser", "camo"], "optics": ["iron", "rds", "holo"],
 		"defaults": {"optic": "rds", "camo": "black"}},
 	"lmg": {"id": "lmg", "name": "РПЛ-7", "cal": "7,62 мм", "cls": "Ручной пулемёт", "mag": 100, "reserve": 200, "rpm": 660.0, "dmg": 40.0,
 		"speed": 800.0, "auto": true, "recoil": Vector2(1.05, 0.55), "hip": 3.6, "ads": 0.11, "ads_time": 0.34, "reload": 5.2,
-		"sound": "shot_rifle", "pitch": 0.78, "zero": 100.0, "drag": 0.3, "kick": 0.034, "tracer": 2, "noise": 135.0, "move": 0.9,
+		"sound": "shot_lmg", "pitch": 1.0, "zero": 100.0, "drag": 0.3, "kick": 0.034, "tracer": 2, "noise": 135.0, "move": 0.9,
 		"slots": ["optic", "muzzle", "barrel", "grip", "mag", "stock", "laser", "camo"], "optics": ["iron", "rds", "holo", "x3", "thermal"],
 		"defaults": {"optic": "holo", "camo": "olive"}},
 	"dmr": {"id": "dmr", "name": "СВМ-76", "cal": "7,62 мм", "cls": "Марксманская винтовка", "mag": 10, "reserve": 60, "rpm": 280.0, "dmg": 76.0,
 		"speed": 830.0, "auto": false, "recoil": Vector2(2.3, 0.55), "hip": 3.8, "ads": 0.03, "ads_time": 0.26, "reload": 2.7,
-		"sound": "shot_sniper", "pitch": 1.12, "zero": 150.0, "drag": 0.22, "kick": 0.055, "tracer": 0, "noise": 145.0,
+		"sound": "shot_dmr", "pitch": 1.0, "zero": 150.0, "drag": 0.22, "kick": 0.055, "tracer": 0, "noise": 145.0,
 		"slots": ["optic", "muzzle", "barrel", "grip", "mag", "stock", "laser", "camo"], "optics": ["iron", "rds", "x3", "x6", "thermal"],
 		"defaults": {"optic": "x3", "camo": "black"}},
 	"sg": {"id": "sg", "name": "КС-12", "cal": "12 калибр", "cls": "Дробовик", "mag": 7, "reserve": 42, "rpm": 75.0, "dmg": 17.0, "pellets": 9,
 		"speed": 400.0, "auto": false, "recoil": Vector2(3.6, 0.9), "hip": 3.4, "ads": 2.3, "ads_time": 0.2, "reload": 3.4,
-		"sound": "shot_sniper", "pitch": 0.72, "zero": 25.0, "drag": 1.3, "kick": 0.08, "tracer": 0, "noise": 120.0, "pump": true,
+		"sound": "shot_sg", "pitch": 1.0, "zero": 25.0, "drag": 1.3, "kick": 0.08, "tracer": 0, "noise": 120.0, "pump": true,
 		"slots": ["optic", "muzzle", "mag", "stock", "laser", "camo"], "optics": ["iron", "rds", "holo"],
 		"defaults": {"optic": "iron", "camo": "black"}},
 	"sr": {"id": "sr", "name": "СВ-7", "cal": "7,62 мм", "cls": "Снайперская винтовка", "mag": 5, "reserve": 35, "rpm": 50.0, "dmg": 115.0,
 		"speed": 820.0, "auto": false, "recoil": Vector2(3.4, 0.6), "hip": 4.5, "ads": 0.012, "ads_time": 0.3, "reload": 3.2,
-		"sound": "shot_sniper", "pitch": 1.0, "zero": 200.0, "drag": 0.2, "kick": 0.075, "tracer": 0, "noise": 160.0, "bolt": true,
+		"sound": "shot_sr", "pitch": 1.0, "zero": 200.0, "drag": 0.2, "kick": 0.075, "tracer": 0, "noise": 160.0, "bolt": true,
 		"slots": ["optic", "muzzle", "mag"], "optics": ["x6", "x10", "thermal"], "defaults": {"optic": "x6"}},
 	"pistol": {"id": "pistol", "name": "П-9", "cal": "9 мм", "cls": "Пистолет", "mag": 15, "reserve": 60, "rpm": 420.0, "dmg": 27.0,
 		"speed": 375.0, "auto": false, "recoil": Vector2(1.7, 0.5), "hip": 1.7, "ads": 0.22, "ads_time": 0.14, "reload": 1.7,
@@ -158,8 +158,8 @@ static func effective(id: String, att: Dictionary) -> Dictionary:
 			rec *= 0.94
 			d.ads_time = float(d.ads_time) * 1.06
 			d.flash = 0.0
-			d.vol = -13.0
-			d.pitch = float(d.pitch) * 1.35
+			d.vol = -7.0
+			d.sound = String(d.sound) + "_supp"
 			d.tracer = 0
 		"comp":
 			rec.x *= 0.8

@@ -441,8 +441,8 @@ func _move(delta: float) -> void:
 			step_acc = 0.0
 			var q := PhysicsRayQueryParameters3D.create(global_position + Vector3(0, 0.3, 0), global_position - Vector3(0, 0.5, 0), Game.L_WORLD)
 			var hit := get_world_3d().direct_space_state.intersect_ray(q)
-			var hard: bool = not hit.is_empty() and hit.collider.get_meta("surf", "dirt") != "dirt"
-			Sfx.step(hard, global_position, -14.0 if crouching else (-6.0 if sprinting else -10.0), true)
+			var surf: String = str(hit.collider.get_meta("surf", "dirt")) if not hit.is_empty() else "dirt"
+			Sfx.step(surf != "dirt", global_position, -14.0 if crouching else (-6.0 if sprinting else -10.0), true, surf)
 			if not crouching:
 				Game.noise(global_position, 17.0 if sprinting else 8.0)
 

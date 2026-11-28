@@ -71,7 +71,8 @@ func _ready() -> void:
 	world.add_child(menu_cam)
 	menu_cam.make_current()
 	_orbit(0.0)
-	Sfx.loop("wind", true, -15.0)
+	Sfx.set_map(map_id)
+	Sfx.loop("wind", true, -9.0)
 	if Game.arg_prefix("--walkshot"):
 		_walkshot()
 		return

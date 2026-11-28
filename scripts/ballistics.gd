@@ -151,5 +151,5 @@ func _near_miss(b: Bullet, a: Vector3, c: Vector3) -> void:
 		var q2 := Geometry3D.get_closest_point_to_segment(head, a, c)
 		if q2.distance_to(head) < 2.4 and q2 != c:
 			b.whizzed = true
-			Sfx.play_at("whizz%d" % (randi() % 2), q2, 0.0, randf_range(0.9, 1.15), 4.0, 40.0)
+			Sfx.play_at("whizz", q2, 0.0, randf_range(0.9, 1.15), 4.0, 40.0)
 			Game.player.suppress(0.35)

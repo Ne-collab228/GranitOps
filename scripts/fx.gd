@@ -188,7 +188,7 @@ func explosion(pos: Vector3, radius := 9.0, dmg := 170.0) -> void:
 	var pl: Player = Game.player
 	var listener: Vector3 = pl.global_position if pl else pos
 	var dist := listener.distance_to(pos)
-	Sfx.play_at("explosion", pos, 6.0, randf_range(0.92, 1.05), 70.0, 2000.0, dist / 343.0)
+	Sfx.play_at("explosion_far" if dist > 160.0 else "explosion", pos, 6.0, randf_range(0.92, 1.05), 70.0, 2000.0, dist / 343.0)
 	Game.noise(pos, 260.0)
 	var space := get_world_3d().direct_space_state
 	for e in Game.enemies:

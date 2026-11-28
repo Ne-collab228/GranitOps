@@ -237,6 +237,12 @@ d.polygon([(256, 214), (300, 290), (256, 270), (212, 290)], fill=(196, 70, 44, 2
 ic.save(os.path.join(PROJECT, "icon.png"))
 
 # ---------------------------------------------------------------- sounds
+# Звуки игры теперь настоящие записи (tools/build_sfx.py, assets/sfx/*.ogg). Синтез ниже пишется во временную
+# папку и копируется в assets/sfx только для имён, которых там ещё нет (ни .ogg, ни .wav).
+import shutil
+import tempfile
+SFX_FINAL = SFX
+SFX = tempfile.mkdtemp()
 SR = 44100
 
 
@@ -491,6 +497,17 @@ with wave.open(os.path.join(SFX, "fire.wav"), "wb") as w:
     w.setsampwidth(2)
     w.setframerate(SR)
     w.writeframes(data.tobytes())
+
+REPLACED = {"shot_enemy", "shot_rifle", "shot_sniper", "wind", "whizz0", "whizz1", "step_gravel0", "step_gravel1",
+            "step_gravel2", "step_gravel3", "step_hard0", "step_hard1", "step_hard2"}  # заменены вариантами/псевдонимами в sfx.gd
+for _fn in os.listdir(SFX):
+    _base = os.path.splitext(_fn)[0]
+    if _base in REPLACED:
+        continue
+    if not (os.path.exists(os.path.join(SFX_FINAL, _base + ".ogg")) or os.path.exists(os.path.join(SFX_FINAL, _fn))):
+        shutil.copy(os.path.join(SFX, _fn), os.path.join(SFX_FINAL, _fn))
+shutil.rmtree(SFX)
+SFX = SFX_FINAL
 
 # ---------------------------------------------------------------- .import files
 TEX_IMPORT = """[remap]

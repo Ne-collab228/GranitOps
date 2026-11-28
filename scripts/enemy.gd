@@ -712,7 +712,10 @@ func _pose(delta: float, limp := 0.0) -> void:
 	var co := cos(gait)
 	# шаг — в момент постановки пятки (нога в крайнем положении)
 	if mv > 0.5 and prev_c * co < 0.0 and Game.player and global_position.distance_to(Game.player.global_position) < 28.0:
-		Sfx.step(false, global_position, -12.0)
+		var sq := PhysicsRayQueryParameters3D.create(global_position + Vector3(0, 0.3, 0), global_position - Vector3(0, 0.5, 0), Game.L_WORLD)
+		var sh := get_world_3d().direct_space_state.intersect_ray(sq)
+		var surf: String = str(sh.collider.get_meta("surf", "dirt")) if not sh.is_empty() else "dirt"
+		Sfx.step(surf != "dirt", global_position, -12.0, false, surf)
 	var run := clampf(sp / 4.4, 0.0, 1.0)
 	var c := crouch
 	# размах бедра из скорости и частоты: длина шага = скорость / шагов в секунду — ступни не «скользят»
