@@ -51,6 +51,21 @@ func _collect(n: Node, xf: Transform3D, out: Array) -> void:
 		_collect(c, t, out)
 
 
+## Текстуры из assets/vehicles/src в экспорт не попадают (exclude_filter) — копируем в assets/vehicles/tex/,
+## чтобы .res не ссылался на src. Импорт скопированных файлов делает `godot --headless --import`.
+func _export_tex(path: String) -> String:
+	if not path.begins_with("res://assets/vehicles/src/"):
+		return path
+	DirAccess.make_dir_recursive_absolute("res://assets/vehicles/tex")
+	var dst := "res://assets/vehicles/tex/" + path.get_file()
+	if not FileAccess.file_exists(dst):
+		DirAccess.copy_absolute(path, dst)
+		var imp := path + ".import"
+		if FileAccess.file_exists(imp):
+			print("копия текстуры ", dst, " (запустить --import)")
+	return dst
+
+
 func _mat_info(mi: MeshInstance3D, s: int) -> Dictionary:
 	var mat: Material = mi.get_surface_override_material(s)
 	if mat == null:
@@ -62,7 +77,7 @@ func _mat_info(mi: MeshInstance3D, s: int) -> Dictionary:
 			var bm := mat as BaseMaterial3D
 			info.color = bm.albedo_color
 			if bm.albedo_texture and bm.albedo_texture.resource_path != "" and not bm.albedo_texture.resource_path.contains("::"):
-				info.tex = bm.albedo_texture.resource_path
+				info.tex = _export_tex(bm.albedo_texture.resource_path)
 			elif bm.albedo_texture:
 				# встроенная в FBX текстура — сохранить рядом
 				var p := "res://assets/vehicles/tex_%s.png" % String(info.name).validate_filename()
