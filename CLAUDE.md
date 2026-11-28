@@ -84,7 +84,7 @@ godot --headless --path . --export-debug "Android arm64" /tmp/x.apk         # о
 | Файл | Назначение |
 |---|---|
 | `settings.gd` (автозагрузка Settings) | Пресеты графики, автоопределение по GPU, динамическое разрешение, сохранение в `user://settings.cfg` |
-| `sfx.gd` (Sfx) | Пул звуков, задержка по скорости звука |
+| `sfx.gd` (Sfx) | Пул звуков, варианты (name, name_2…), задержка по скорости звука, «вдали» для выстрелов, шаги по поверхностям, двигатель `Sfx.engine`, фон по картам. Записи CC0 в `assets/sfx/*.ogg` (источники — `LICENSES.md`), собираются `tools/build_sfx.py`; список имён — `scripts/sfx_names.gd`. Проверка: `godot --headless --audio-driver Dummy --path . -s tools/sfx_test.gd` |
 | `game.gd` (Game) | Реестр (player, level, fx, enemies…), карта ввода, статистика, `Game.noise()` |
 | `main.gd` | Загрузка, меню, старт/пауза/рестарт, автотесты |
 | `level.gd` | Рельеф, база, блокпост, РЛС, точка эвакуации, растительность, список врагов, навигация |

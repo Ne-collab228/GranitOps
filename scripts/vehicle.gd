@@ -295,6 +295,7 @@ func _physics_process(delta: float) -> void:
 		return
 	if player != null or ai:
 		_drive(delta)
+		Sfx.engine(get_instance_id(), global_position, clampf(absf(speed) / float(def.vmax), 0.0, 1.0), clampf(absf(throttle_in), 0.0, 1.0), -4.0)
 	_ram(delta)
 
 
