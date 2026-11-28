@@ -1,0 +1,1443 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 9ce1e92..af529fa 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -357,3 +357,31 @@ godot --headless --path . --export-debug "Android arm64" /tmp/x.apk         # о
+   Сжатие неба VRAM (ASTC HDR, 2 МБ вместо 8) не включали: поддержка HDR на Mali-G52 не проверена, в APK небо и так ~3–4 МБ после deflate.
+ - Порт: вода темнее и матовее, больше деревьев/травы. Корабли (грубые коробки) не тронуты.
+ - В полном прогоне бенча Долины точка «у ангара» иногда даёт 246–252 (техника рядом), отдельно `--only=3` — 165.
++
++## Процессор и треугольники 2.1 (2026-11-28, по журналу 2.0 с телефона)
++
++Журнал 2.0 (Honor, «Низкое»): FPS 12–19 при 50–140 вызовах, `мс: кадр` 20–45, пики `физ` 30–40 мс, 150–500 тыс. треугольников.
++Упор — не вызовы отрисовки, а процессор (скрипты, навигация) и, вероятно, видеочип (рельеф, анизотропия).
++- **Профайлер** `scripts/prof.gd` (Prof): время блоков копится всегда; в строке журнала Blackbox (раз в 10 с) после `|` —
++  `скр мс/кадр: ии= поза= толпа= hud= кноп= маш= пули= fx= игрок= карта= журн= путь= взгляд= движ= всего= физ/кадр= пик: …`
++  (среднее мс на кадр; «путь/взгляд/движ» — части «ии»; «пик» — самый долгий одиночный вызов ≥2 мс). `-- --prof` печатает это раз в 2 с.
++- **Главный виновник — запросы пути**: сервер навигации ищет ближайший полигон перебором ВСЕХ полигонов карты (Долина 134 тыс.) —
++  ~5 мс на ПК на любой, даже 10-метровый путь (на телефоне 30+ мс = те самые пики физики). Теперь: куски навигации режутся на
++  `Level.NAV_SPLIT`² регионов (файлы `assets/nav/<карта>/<кусок>_<k>.res`, 256 регионов), `Enemy.nav_path` для путей до 120 м
++  включает только регионы рядом (`included_regions`) — ~0.4 мс; не больше 2 запросов на физический кадр (`NAV_PER_TICK`),
++  после неудачи пауза 1.2–2.2 с (`_go_cool`). `path_search_max_polygons/distance` НЕ использовать: движок пишет ошибку
++  «It's not expect to not find the most reachable polygons». Замер: `-- --navbench --map=N` (можно `--headless`).
++  `-- --navsplit --map=N` — разрезать старые куски без перепечки; `--bake` режет сам.
++- **ИИ по дистанции**: дальше 45 м бот идёт по пути без move_and_slide (`_move_kin`: высота по рельефу/пути), не в бою дальше 60 м —
++  обновление раз в 2 физкадра, дальше 150 м — раз в 4; поворот узла только при изменении угла.
++- **HUD**: глифы раскладываются один раз (`UiBatch._laid`); «неподвижный» текст (задачи, здоровье, патроны, сообщения) —
++  в дочернем элементе холста, перезаписывается только при изменении (`ub.static_mode`, хэш); прозрачность сообщения ступеньками.
++- Машины: `_ram` — одно обращение матрицы на кадр и отсечение по дистанции. Blackbox: `Debug.getPss()` (десятки мс) — только раз в 10 с.
++- **Треугольники**: дальние горы (`_outer_meshes`) — куски 4x4 с LOD (раньше 4 сектора без LOD, Аэродром ~110 тыс.); FarCrowd
++  упрощает запечённого солдата до ~25% (2136 → 534); `lod` пресетов: низкое 6, среднее 3.5 (миграция `VERSION 6`).
++  Районы `Geo.finish` (коробки) meshoptimizer не упрощает — LOD для них бесполезен (проверено).
++- **Видеочип**: анизотропия низкое 2x / среднее 4x / высокое 8x (было 4/8/16); рельеф не выбирает текстуру скалы без скалы,
++  полосы слоёв только при `strata > 0`, мелкая детализация вблизи — со «Среднего».
++- Отладка: `-- --bench --trisplit` (цена каждой группы геометрии с тенями и LOD), `--lod=N` (порог LOD в бенче).
++- Не сделано: рельеф вблизи (куски 315 м, 22 тыс. треугольников, ~100 тыс. в кадре) — LOD по центру куска нельзя ниже ~230 м;
++  районы (деревня 50–70 тыс.) — нужна разбивка деталей на отдельные меши с дальностью видимости.
+diff --git a/scripts/ballistics.gd b/scripts/ballistics.gd
+index ca97828..42a4e70 100644
+--- a/scripts/ballistics.gd
++++ b/scripts/ballistics.gd
+@@ -70,6 +70,12 @@ func fire(origin: Vector3, dir: Vector3, speed: float, dmg: float, shooter: Node
+ 
+ 
+ func _physics_process(delta: float) -> void:
++	var t0_ := Time.get_ticks_usec()
++	_step_all(delta)
++	Prof.add(Prof.BAL, Time.get_ticks_usec() - t0_)
++
++
++func _step_all(delta: float) -> void:
+ 	var i := bullets.size() - 1
+ 	while i >= 0:
+ 		var b := bullets[i]
+diff --git a/scripts/blackbox.gd b/scripts/blackbox.gd
+index c2c88a0..5f223f7 100644
+--- a/scripts/blackbox.gd
++++ b/scripts/blackbox.gd
+@@ -189,12 +189,14 @@ func _java_init() -> void:
+ 
+ ## «PSS=…M куча=…M тепло=…» или пусто. Тепловой статус Android: 0 нет, 1 лёгкий, 2 умеренный,
+ ## 3 сильный, 4 критический, 5 аварийный, 6 отключение.
+-func _android_stats() -> String:
++## full = false: без PSS. Debug.getPss() разбирает /proc/self/smaps — на слабом телефоне это десятки мс
++## (заметный рывок), поэтому PSS читается только в строках журнала (раз в 10 с), а не каждые 2 с.
++func _android_stats(full := true) -> String:
+ 	if not _java_tried:
+ 		_java_init()
+ 	var out := ""
+ 	if _jdebug:
+-		var pss = _jdebug.getPss()
++		var pss = _jdebug.getPss() if full else null
+ 		var heap = _jdebug.getNativeHeapAllocatedSize()
+ 		if pss != null:
+ 			out += " PSS=%dM" % (int(pss) / 1024)
+@@ -235,6 +237,13 @@ func _flush(tail := "") -> void:
+ 
+ 
+ func _process(delta: float) -> void:
++	var t0_ := Time.get_ticks_usec()
++	Prof.frame()
++	_bb_tick(delta)
++	Prof.add(Prof.BB, Time.get_ticks_usec() - t0_)
++
++
++func _bb_tick(delta: float) -> void:
+ 	# отправка прошлых журналов — когда игра уже загрузилась и работает (по реальному времени)
+ 	if not _upload_started and Time.get_ticks_msec() - _start_ms > 8000:
+ 		_upload_started = true
+@@ -271,6 +280,14 @@ func _process(delta: float) -> void:
+ 		Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+ 		RenderingServer.viewport_get_measured_render_time_cpu(vrid) + RenderingServer.get_frame_setup_time_cpu(),
+ 		RenderingServer.viewport_get_measured_render_time_gpu(vrid)]
++	# разбивка времени скриптов по блокам (Prof) — за окно между строками журнала (10 с), с --prof каждые 2 с
++	var prof := ""
++	if Prof.verbose or not _skip_log:
++		prof = " | " + Prof.report()
++		if Prof.verbose:
++			print("PROF fps=%d кадр=%.1f физ=%.1f %s" % [Engine.get_frames_per_second(),
++				Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
++				Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, prof])
+ 	var aa := "FXAA" if Settings.fxaa_on() else "нет"
+ 	if get_viewport().msaa_3d != Viewport.MSAA_DISABLED:
+ 		aa = "MSAA%d" % (2 << (get_viewport().msaa_3d - 1))
+@@ -282,7 +299,7 @@ func _process(delta: float) -> void:
+ 		Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
+ 		Performance.get_monitor(Performance.OBJECT_COUNT),
+ 		Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+-		Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1000, extra + tms + _android_stats()])
++		Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1000, extra + tms + _android_stats(not _skip_log) + prof])
+ 	_skip_log = false
+ 
+ 
+diff --git a/scripts/enemy.gd b/scripts/enemy.gd
+index eed4032..12b7a26 100644
+--- a/scripts/enemy.gd
++++ b/scripts/enemy.gd
+@@ -276,7 +276,7 @@ func hear(pos: Vector3, radius: float, investigate := true) -> void:
+ 	target_yaw = atan2(-(pos.x - global_position.x), -(pos.z - global_position.z))
+ 	if investigate and not hold and d < 90.0:
+ 		# осторожно, шагом, а не бегом
+-		_go(last_known, 2.2)
++		_go(last_known, 2.2, true)
+ 	else:
+ 		# остальные — оборона на месте: пригнуться и смотреть в сторону звука
+ 		path = PackedVector3Array()
+@@ -300,7 +300,7 @@ func _calm() -> void:
+ 	awareness = 0.3
+ 	want_crouch = false
+ 	if state == St.IDLE and not hold:
+-		_go(home, 1.6)
++		_go(home, 1.6, true)
+ 	target_yaw = home_yaw
+ 
+ 
+@@ -365,9 +365,9 @@ func _think_combat(dt: float) -> void:
+ 			var pushing: bool = Game.pushers.has(self)
+ 			var free_slot: bool = pushing or Game.pushers.size() < 2
+ 			if advance_count < 3 and free_slot and global_position.distance_to(last_known) > 4.0:
+-				advance_count += 1
+-				Game.pushers[self] = true
+-				_go(last_known + Vector3(randf_range(-3, 3), 0, randf_range(-3, 3)), 4.2)
++				if _go(last_known + Vector3(randf_range(-3, 3), 0, randf_range(-3, 3)), 4.2):
++					advance_count += 1
++					Game.pushers[self] = true
+ 			elif free_slot:
+ 				Game.pushers.erase(self)
+ 				_go(last_known + Vector3(randf_range(-12, 12), 0, randf_range(-12, 12)), 2.6)
+@@ -426,13 +426,92 @@ func _pick_cover() -> void:
+ 		cover_t = 0.8
+ 
+ 
+-func _go(target: Vector3, spd: float) -> bool:
++## Запросы пути — главный пожиратель процессора в бою (замер 2.0: до 13 мс/кадр на ПК, одиночный запрос 7–25 мс,
++## на телефоне это пики физики 30–40 мс). Поэтому: не больше NAV_PER_TICK запросов на физический кадр на всех,
++## после неудачи пауза, а поиск ограничен по числу полигонов и дальности — недостижимая цель (игрок на крыше,
++## в машине, за обрывом) больше не перебирает всю сетку карты, а даёт путь к ближайшей достижимой точке.
++const NAV_PER_TICK := 2
++static var _nav_frame := -1
++static var _nav_left := 0
++static var _nav_q: NavigationPathQueryParameters3D
++static var _nav_r: NavigationPathQueryResult3D
++var _go_cool := 0.0
++
++
++## Путь по сетке навигации (используется и в --navbench). Сервер ищет ближайший полигон к началу и концу пути
++## перебором полигонов ВСЕХ включённых регионов (Долина — 134 тыс., ~5 мс на ПК на любой, даже 10-метровый путь),
++## поэтому для путей до NAV_NEAR м включаются только регионы (куски по ~80 м, Level.NAV_SPLIT) рядом с отрезком:
++## ~0.4 мс. Длинные пути (редкие) — по всей карте, иначе обход (серпантин Перевала) не найти.
++## Ограничения path_search_max_polygons/distance не используются: при срабатывании движок пишет ошибку
++## «It's not expect to not find the most reachable polygons», а длинному пути они не помогают.
++const NAV_NEAR := 120.0
++
++
++static func nav_path(map: RID, from: Vector3, to: Vector3) -> PackedVector3Array:
++	if _nav_q == null:
++		_nav_q = NavigationPathQueryParameters3D.new()
++		_nav_r = NavigationPathQueryResult3D.new()
++		# простые точки без метаданных — меньше работы и памяти
++		_nav_q.metadata_flags = NavigationPathQueryParameters3D.PATH_METADATA_INCLUDE_NONE
++	_nav_q.map = map
++	_nav_q.start_position = from
++	_nav_q.target_position = to
++	var dist := from.distance_to(to)
++	if dist <= NAV_NEAR:
++		_nav_q.included_regions = _regions_near(map, from, to, maxf(30.0, dist * 0.5))
++	else:
++		_nav_q.included_regions = []
++	NavigationServer3D.query_path(_nav_q, _nav_r)
++	return _nav_r.path
++
++
++static var _reg_iter := -1
++static var _reg_map := RID()
++static var _reg_rids: Array[RID] = []
++static var _reg_bounds: Array[AABB] = []
++
++
++static func _regions_near(map: RID, a: Vector3, b: Vector3, margin: float) -> Array[RID]:
++	var it := NavigationServer3D.map_get_iteration_id(map)
++	if it != _reg_iter or map != _reg_map:
++		_reg_iter = it
++		_reg_map = map
++		_reg_rids.clear()
++		_reg_bounds.clear()
++		for r in NavigationServer3D.map_get_regions(map):
++			_reg_rids.append(r)
++			_reg_bounds.append(NavigationServer3D.region_get_bounds(r))
++	var box := AABB(a, Vector3.ZERO).expand(b).grow(margin)
++	box.position.y = -1.0e5
++	box.size.y = 2.0e5
++	var out: Array[RID] = []
++	for i in _reg_rids.size():
++		if _reg_bounds[i].intersects(box):
++			out.append(_reg_rids[i])
++	return out
++
++
++func _go(target: Vector3, spd: float, force := false) -> bool:
+ 	if hold or not Game.level.nav_ready:
+ 		return false
++	if _go_cool > 0.0 and not force:
++		return false
++	var f := Engine.get_physics_frames()
++	if f != _nav_frame:
++		_nav_frame = f
++		_nav_left = NAV_PER_TICK
++	if _nav_left <= 0 and not force:
++		# лимит на этот кадр исчерпан — попробуем при следующем «думании» (через 0.18–0.5 с)
++		return false
++	_nav_left -= 1
+ 	var map := get_world_3d().navigation_map
+-	var pts := NavigationServer3D.map_get_path(map, global_position, target, true)
+-	if pts.size() < 2:
++	var t0 := Time.get_ticks_usec()
++	var pts := nav_path(map, global_position, target)
++	Prof.add(Prof.NAV, Time.get_ticks_usec() - t0)
++	if pts.size() < 2 or pts[pts.size() - 1].distance_squared_to(global_position) < 0.36:
+ 		path = PackedVector3Array()
++		# цель недостижима — не долбить сервер навигации каждые 0.18 с
++		_go_cool = randf_range(1.2, 2.2)
+ 		return false
+ 	path = pts
+ 	path_i = 1
+@@ -503,29 +582,70 @@ func _shoot() -> void:
+ func _physics_process(delta: float) -> void:
+ 	if state == St.DEAD:
+ 		return
++	var t0 := Time.get_ticks_usec()
++	_phys(delta)
++	Prof.add(Prof.AI, Time.get_ticks_usec() - t0)
++
++
++## Прореживание по дистанции (замер 2.0: ~125 ботов Долины — половина времени скриптов в бою):
++## дальше KIN_D от игрока бот идёт по пути без move_and_slide (кинематически, высота — по пути/рельефу);
++## не в бою дальше THIN_D обновляется раз в 2 физических кадра, дальше 150 м — раз в 4 (накопленный dt).
++const KIN_D := 45.0
++const THIN_D := 60.0
++var _kin := false
++var _tick_acc := 0.0
++
++
++func _phys(delta: float) -> void:
+ 	var p: Player = Game.player
+ 	if p == null:
+ 		return
++	var d2 := global_position.distance_squared_to(p.global_position)
++	if state != St.COMBAT and d2 > THIN_D * THIN_D:
++		_tick_acc += delta
++		var every := 4 if d2 > 22500.0 else 2
++		if (Engine.get_physics_frames() + _pose_phase) % every != 0:
++			return
++		delta = _tick_acc
++	_tick_acc = 0.0
++	# гистерезис, чтобы бот на границе не переключался туда-сюда
++	var kin := d2 > (KIN_D - 3.0) * (KIN_D - 3.0) if _kin else d2 > (KIN_D + 3.0) * (KIN_D + 3.0)
++	if kin != _kin:
++		_kin = kin
++		if not kin:
++			# вернулся в зону физики: пусть move_and_slide найдёт пол
++			settle = maxi(settle, 6)
++			velocity.y = 0.0
+ 	think_t -= delta
+ 	if think_t <= 0.0:
+-		var far: bool = state != St.COMBAT and global_position.distance_to(p.global_position) > 170.0
+-		_far = state != St.COMBAT and (far or global_position.distance_squared_to(p.global_position) > 22500.0)
++		var far: bool = state != St.COMBAT and d2 > 28900.0  # 170 м
++		_far = state != St.COMBAT and d2 > 22500.0
+ 		var interval := 0.5 if far else 0.18
+ 		think_t = interval
++		var t0 := Time.get_ticks_usec()
+ 		_perceive(interval)
++		Prof.add(Prof.SEE, Time.get_ticks_usec() - t0)
+ 		_think(interval)
+ 	suppress_t = maxf(0.0, suppress_t - delta)
++	_go_cool = maxf(0.0, _go_cool - delta)
+ 	react_t = maxf(0.0, react_t - delta)
+ 	if state == St.COMBAT:
+ 		_fire_logic(delta)
+-	elif _far and path.is_empty() and settle <= 0 and is_on_floor() and absf(velocity.x) + absf(velocity.z) < 0.02:
++	elif _far and path.is_empty() and settle <= 0 and absf(velocity.x) + absf(velocity.z) < 0.02:
+ 		# дальний бот стоит на месте (не в тревоге): без физики движения, только поворот
+-		yaw = lerp_angle(yaw, target_yaw, minf(1.0, delta * 7.0))
+-		pivot.rotation.y = yaw
++		_turn(delta)
+ 		return
+ 	_move(delta, p)
+ 
+ 
++func _turn(delta: float) -> void:
++	if absf(angle_difference(yaw, target_yaw)) < 0.0005:
++		return
++	yaw = lerp_angle(yaw, target_yaw, minf(1.0, delta * 7.0))
++	# поворот узла двигает скелет и оба меша (обновление в сервере отрисовки) — только когда угол изменился
++	pivot.rotation.y = yaw
++
++
+ func _move(delta: float, p: Player) -> void:
+ 	var moving := false
+ 	if not path.is_empty() and not hold:
+@@ -542,30 +662,53 @@ func _move(delta: float, p: Player) -> void:
+ 			moving = true
+ 			if not (state == St.COMBAT and sees):
+ 				target_yaw = atan2(-dir.x, -dir.z)
+-			stuck_t += delta
+-			if stuck_t > 1.5:
+-				if global_position.distance_to(stuck_pos) < 0.4:
+-					path = PackedVector3Array()
+-				stuck_t = 0.0
+-				stuck_pos = global_position
++			if not _kin:
++				stuck_t += delta
++				if stuck_t > 1.5:
++					if global_position.distance_to(stuck_pos) < 0.4:
++						path = PackedVector3Array()
++					stuck_t = 0.0
++					stuck_pos = global_position
+ 	if not moving:
+ 		velocity.x = move_toward(velocity.x, 0.0, 25.0 * delta)
+ 		velocity.z = move_toward(velocity.z, 0.0, 25.0 * delta)
+-	if is_on_floor():
+-		velocity.y = 0.0
++	if _kin:
++		if moving:
++			_move_kin(delta)
+ 	else:
+-		velocity.y -= 12.0 * delta
+-	if moving or settle > 0 or not is_on_floor() or absf(velocity.x) + absf(velocity.z) > 0.02:
+-		move_and_slide()
+-		settle -= 1
++		if is_on_floor():
++			velocity.y = 0.0
++		else:
++			velocity.y -= 12.0 * delta
++		if moving or settle > 0 or not is_on_floor() or absf(velocity.x) + absf(velocity.z) > 0.02:
++			var t0 := Time.get_ticks_usec()
++			move_and_slide()
++			Prof.add(Prof.MOVE, Time.get_ticks_usec() - t0)
++			settle -= 1
+ 	aim_pitch = 0.0
+ 	if state == St.COMBAT and sees:
+ 		var tp: Vector3 = p.aim_point()
+ 		var d := tp - eye_pos()
+ 		target_yaw = atan2(-d.x, -d.z)
+ 		aim_pitch = atan2(d.y, Vector2(d.x, d.z).length())
+-	yaw = lerp_angle(yaw, target_yaw, minf(1.0, delta * 7.0))
+-	pivot.rotation.y = yaw
++	_turn(delta)
++
++
++## Шаг без физики (дальний бот): путь с сетки навигации уже обходит стены, столкновения вдали не нужны.
++## Высота: на открытой земле — по рельефу (Level.ground), на постройках (путь заметно выше рельефа) — по пути.
++func _move_kin(delta: float) -> void:
++	velocity.y = 0.0
++	var np := global_position + Vector3(velocity.x, 0.0, velocity.z) * delta
++	var a := path[maxi(0, path_i - 1)]
++	var b := path[path_i]
++	var ab := Vector2(b.x - a.x, b.z - a.z)
++	var t := 0.0
++	if ab.length_squared() > 0.0001:
++		t = clampf(Vector2(np.x - a.x, np.z - a.z).dot(ab) / ab.length_squared(), 0.0, 1.0)
++	var py := lerpf(a.y, b.y, t)
++	var gy: float = Game.level.ground(np.x, np.z)
++	np.y = gy if py - gy < 1.0 else py
++	global_position = np
+ 
+ 
+ # ------------------------------------------------------------------ урон
+@@ -640,6 +783,12 @@ func _die(dir: Vector3) -> void:
+ 
+ # ------------------------------------------------------------------ анимация
+ func _process(delta: float) -> void:
++	var t0 := Time.get_ticks_usec()
++	_anim(delta)
++	Prof.add(Prof.POSE, Time.get_ticks_usec() - t0)
++
++
++func _anim(delta: float) -> void:
+ 	if state == St.DEAD:
+ 		if dead_t < 1.0:
+ 			dead_t += delta
+diff --git a/scripts/far_crowd.gd b/scripts/far_crowd.gd
+index fcd56c7..673388b 100644
+--- a/scripts/far_crowd.gd
++++ b/scripts/far_crowd.gd
+@@ -62,12 +62,36 @@ static func bake(src: ArrayMesh, sk: Skeleton3D, skin: Skin) -> ArrayMesh:
+ 	out[Mesh.ARRAY_NORMAL] = on
+ 	out[Mesh.ARRAY_TEX_UV] = arr[Mesh.ARRAY_TEX_UV]
+ 	out[Mesh.ARRAY_INDEX] = arr[Mesh.ARRAY_INDEX]
++	# Дальний солдат — 10–20 px, а LOD 1 скелетного меша ~2 тыс. треугольников: толпа из 30 солдат давала
++	# 50–70 тыс. треугольников (замер 2.0). Упрощаем один раз (meshoptimizer) до ~30% треугольников.
++	var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
++	if idx.size() > 600:
++		var im := ImporterMesh.new()
++		im.add_surface(Mesh.PRIMITIVE_TRIANGLES, out)
++		im.generate_lods(25.0, 60.0, [])
++		var best := idx
++		for li in im.get_surface_lod_count(0):
++			var li_idx := im.get_surface_lod_indices(0, li)
++			if li_idx.size() >= 3 and li_idx.size() < best.size() and li_idx.size() >= idx.size() * 0.2:
++				best = li_idx
++		out[Mesh.ARRAY_INDEX] = best
++		if verbose_bake:
++			print("FarCrowd: треугольников %d -> %d" % [idx.size() / 3, best.size() / 3])
+ 	var m := ArrayMesh.new()
+ 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out)
+ 	return m
+ 
+ 
++static var verbose_bake := "--prof" in OS.get_cmdline_user_args() or "--drawdump" in OS.get_cmdline_user_args()
++
++
+ func _process(_delta: float) -> void:
++	var t0_ := Time.get_ticks_usec()
++	_tick(_delta)
++	Prof.add(Prof.CROWD, Time.get_ticks_usec() - t0_)
++
++
++func _tick(_delta: float) -> void:
+ 	var cam := get_viewport().get_camera_3d()
+ 	var lists: Array = [[], [], []]
+ 	var thr := 1.0e9
+diff --git a/scripts/fx.gd b/scripts/fx.gd
+index f5c2516..c2f5577 100644
+--- a/scripts/fx.gd
++++ b/scripts/fx.gd
+@@ -171,6 +171,12 @@ func light(pos: Vector3, energy: float, rng: float, time: float) -> void:
+ 
+ 
+ func _process(delta: float) -> void:
++	var t0_ := Time.get_ticks_usec()
++	_tick(delta)
++	Prof.add(Prof.FX, Time.get_ticks_usec() - t0_)
++
++
++func _tick(delta: float) -> void:
+ 	_time += delta
+ 	for i in _flashes.size():
+ 		if _flashes[i].visible and _time > _flash_off[i]:
+diff --git a/scripts/geo.gd b/scripts/geo.gd
+index 292ae70..eeb2a10 100644
+--- a/scripts/geo.gd
++++ b/scripts/geo.gd
+@@ -240,6 +240,8 @@ func finish(parent: Node3D, node_name := "geo") -> MeshInstance3D:
+ 	mi.name = node_name
+ 	mi.mesh = mesh
+ 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
++	# склеенный район: Level.apply_quality ограничивает дальность видимости на низком/среднем
++	mi.set_meta("geo_district", true)
+ 	parent.add_child(mi)
+ 	if cast_shadows:
+ 		shadow_proxies(parent, node_name, mesh)
+diff --git a/scripts/hud.gd b/scripts/hud.gd
+index f31b0e5..96d648f 100644
+--- a/scripts/hud.gd
++++ b/scripts/hud.gd
+@@ -144,6 +144,12 @@ func show_message(text: String, time := 3.5) -> void:
+ 
+ 
+ func _process(delta: float) -> void:
++	var t0_ := Time.get_ticks_usec()
++	_tick(delta)
++	Prof.add(Prof.HUD, Time.get_ticks_usec() - t0_)
++
++
++func _tick(delta: float) -> void:
+ 	hit_t = maxf(0.0, hit_t - delta)
+ 	dmg_flash = maxf(0.0, dmg_flash - delta * 1.6)
+ 	message_t = maxf(0.0, message_t - delta)
+@@ -334,8 +340,15 @@ func _goal_marks(c: Control, p: Player, mis: Mission) -> void:
+ 
+ 
+ func draw_hud(c: Control) -> void:
++	var t0_ := Time.get_ticks_usec()
++	_draw_hud_timed(c)
++	Prof.add(Prof.HUD, Time.get_ticks_usec() - t0_)
++
++
++func _draw_hud_timed(c: Control) -> void:
+ 	var p: Player = Game.player
+ 	if p == null or not Game.playing and not p.dead:
++		ub.clear_static()
+ 		return
+ 	ub.begin(c, font)
+ 	_draw_hud(c, p)
+@@ -492,7 +505,9 @@ func _draw_hud(c: Control, p: Player) -> void:
+ 	var mis: Mission = Game.mission
+ 	if mis:
+ 		if not _dbg_hide.has("list"):
++			ub.static_mode = true
+ 			_goal_list(c, p, mis)
++			ub.static_mode = false
+ 		if not map.open and not _dbg_hide.has("marks"):
+ 			_goal_marks(c, p, mis)
+ 		for o in mis.objectives:
+@@ -521,7 +536,8 @@ func _draw_hud(c: Control, p: Player) -> void:
+ 		if w.reserve[w.cur] <= int(d.mag):
+ 			text(c, Vector2(ax2 - 50.0, cy + 72.0), "патроны %d м" % int(ta.length()), 12, blue, HORIZONTAL_ALIGNMENT_CENTER, 100.0)
+ 
+-	# --- здоровье, броня, боезапас (низ по центру)
++	# --- здоровье, броня, боезапас (низ по центру), подсказки и сообщения: надписи меняются редко — неподвижный слой
++	ub.static_mode = true
+ 	var by := sz.y - 34.0
+ 	var bx := ctr.x - 250.0
+ 	ub.draw_rect(Rect2(bx, by, 170.0, 10.0), Color(0, 0, 0, 0.45))
+@@ -556,7 +572,8 @@ func _draw_hud(c: Control, p: Player) -> void:
+ 			ub.draw_rect(Rect2(ctr.x - 90.0, sz.y * 0.64 + 12.0, 180.0, 6.0), Color(0, 0, 0, 0.5))
+ 			ub.draw_rect(Rect2(ctr.x - 90.0, sz.y * 0.64 + 12.0, 180.0 * prompt_progress, 6.0), sand)
+ 	if message_t > 0.0:
+-		var mc2 := Color(1, 0.93, 0.7, clampf(message_t, 0.0, 1.0))
++		# прозрачность ступеньками: надпись в неподвижном слое перезаписывается только при смене ступеньки
++		var mc2 := Color(1, 0.93, 0.7, snappedf(clampf(message_t, 0.0, 1.0), 0.125))
+ 		text(c, Vector2(ctr.x - 400.0, 128.0), message, 20, mc2, HORIZONTAL_ALIGNMENT_CENTER, 800.0)
+ 	if Settings.data.show_fps:
+ 		text(c, Vector2(22, sz.y - 14.0), "%d FPS · %d%%" % [Engine.get_frames_per_second(), int(Settings.dyn_scale * 100.0)], 12, white)
+diff --git a/scripts/level.gd b/scripts/level.gd
+index 107b3ef..4f244db 100644
+--- a/scripts/level.gd
++++ b/scripts/level.gd
+@@ -41,6 +41,8 @@ var env: Environment
+ var sun: DirectionalLight3D
+ var nav_ready := false
+ var veg_nodes: Array = []
++var _districts: Array[Node] = []
++const DISTRICT_FAR := 520.0
+ ## [узел, базовая дальность видимости] — дальность умножается на настройку «draw»
+ var veg_ranges: Array = []
+ var terrain_mat: ShaderMaterial
+@@ -286,7 +288,7 @@ func gpos(x: float, z: float, lift := 0.0) -> Vector3:
+ ## Ключ кэша рельефа: параметры + высоты и цвета в 81 точке + дороги и площадки.
+ ## Любая правка рельефа/дорог/площадок меняет ключ — кэш пересчитается сам.
+ func terrain_key() -> String:
+-	var parts := PackedStringArray([map_key, terrain_ver, str(size), str(cell), str(chunk), str(far_step()), "o4", str(outer_half), str(outer_cell), str(roads), str(pads)])
++	var parts := PackedStringArray([map_key, terrain_ver, str(size), str(cell), str(chunk), str(far_step()), "o7", str(outer_half), str(outer_cell), str(roads), str(pads)])
+ 	for iz in 9:
+ 		for ix in 9:
+ 			var x := -size * 0.5 + size * (ix + 0.37) / 9.0
+@@ -371,7 +373,7 @@ func _instance_terrain() -> void:
+ 		omi.mesh = m
+ 		omi.material_override = terrain_mat
+ 		omi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+-		omi.name = "terrain_outer"
++		omi.name = "terrain_outer_%d" % tdata.outer.find(m)
+ 		add_child(omi)
+ 
+ 
+@@ -583,7 +585,7 @@ func _chunk_shape(x0: int, z0: int) -> ConcavePolygonShape3D:
+ 	return shape
+ 
+ 
+-## Дальние горы вокруг подробной сетки: та же функция высоты, ячейка outer_cell, 4 куска по сторонам света.
++## Дальние горы вокруг подробной сетки: та же функция высоты, ячейка outer_cell, куски сеткой 4x4 с LOD.
+ func _outer_meshes() -> Array[ArrayMesh]:
+ 	var half := size * 0.5
+ 	var cnt := int(round(outer_half * 2.0 / outer_cell))
+@@ -601,7 +603,9 @@ func _outer_meshes() -> Array[ArrayMesh]:
+ 			# ячейки внутри подробной сетки пропускаем
+ 			if absf(cx) < half and absf(cz) < half:
+ 				continue
+-			var gk := int(floor((atan2(cz, cx) + PI) / TAU * 4.0)) % 4
++			# куски сеткой 4x4 (раньше — 4 сектора): LOD выбирается по расстоянию до коробки куска, а коробка сектора
++			# доходит до игровой зоны — дальние горы всегда рисовались в полной детализации
++			var gk := clampi(int((cx + outer_half) / (outer_half * 2.0) * 4.0), 0, 3) + 4 * clampi(int((cz + outer_half) / (outer_half * 2.0) * 4.0), 0, 3)
+ 			if not groups.has(gk):
+ 				groups[gk] = [PackedVector3Array(), PackedVector3Array(), PackedColorArray()]
+ 			# Packed-массивы копируются при чтении из Array — копим в локальные и кладём обратно
+@@ -633,9 +637,16 @@ func _outer_meshes() -> Array[ArrayMesh]:
+ 		arrays[Mesh.ARRAY_VERTEX] = g[0]
+ 		arrays[Mesh.ARRAY_NORMAL] = g[1]
+ 		arrays[Mesh.ARRAY_COLOR] = g[2]
+-		var mesh := ArrayMesh.new()
+-		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+-		out.append(mesh)
++		# Дальние горы — сплошная сетка с ячейкой outer_cell до горизонта (Аэродром: 4 куска, ~110 тыс. треугольников
++		# в кадре на любом пресете, замер 2.0). Индексируем и строим LOD (meshoptimizer): дальше движок берёт
++		# упрощённые уровни по mesh_lod_threshold. Хранится в кэше рельефа (ключ «o7»).
++		var st := SurfaceTool.new()
++		st.create_from_arrays(arrays)
++		st.index()
++		var im := ImporterMesh.new()
++		im.add_surface(Mesh.PRIMITIVE_TRIANGLES, st.commit_to_arrays())
++		im.generate_lods(25.0, 60.0, [])
++		out.append(im.get_mesh())
+ 	return out
+ 
+ 
+@@ -740,6 +751,23 @@ func apply_quality() -> void:
+ 		if v.size() > 2:
+ 			# дальний LOD деревьев: начало совпадает с концом ближнего
+ 			(v[0] as GeometryInstance3D).visibility_range_begin = float(v[2]) * dk
++	# Склеенные районы (Geo.finish) рисуются целиком с любого расстояния, а LOD для коробок не строится (meshoptimizer
++	# их не упрощает): деревня/база — 30–70 тыс. треугольников даже у горизонта (замер 2.0). На низком/среднем район,
++	# весь дальше ~520 м (противники дальше 320 м не рисуются вовсе), скрывается. Дальность — до центра коробки.
++	if _districts.is_empty():
++		for n in find_children("*", "MeshInstance3D", true, false):
++			if n.has_meta("geo_district"):
++				_districts.append(n)
++	for mi in _districts:
++		if not is_instance_valid(mi):
++			continue
++		var gi := mi as MeshInstance3D
++		if int(d.quality) >= 2:
++			gi.visibility_range_end = 0.0
++		else:
++			var half_diag := gi.get_aabb().size.length() * 0.5
++			gi.visibility_range_end = (DISTRICT_FAR + half_diag) * float(d.draw) / 0.8
++			gi.visibility_range_end_margin = 30.0
+ 	for c in _props_root.get_children():
+ 		var mis: Array = Mats.mesh_instances(c)
+ 		var sz := 0.0
+@@ -1705,14 +1733,25 @@ func _setup_navigation(bake: bool) -> void:
+ 	var have := not bake
+ 	if have:
+ 		for i in nav_tiles.size():
+-			if not ResourceLoader.exists("%s/%d.res" % [dir, i]):
++			if not ResourceLoader.exists("%s/%d.res" % [dir, i]) and not _nav_has_split(dir, i):
+ 				have = false
+ 				break
+ 	if have:
++		var split_now := "--navsplit" in OS.get_cmdline_user_args()
+ 		for i in nav_tiles.size():
+-			var region := NavigationRegion3D.new()
+-			region.navigation_mesh = load("%s/%d.res" % [dir, i])
+-			add_child(region)
++			if _nav_has_split(dir, i):
++				for k in NAV_SPLIT * NAV_SPLIT:
++					var fn := "%s/%d_%d.res" % [dir, i, k]
++					if ResourceLoader.exists(fn):
++						_add_nav_region(load(fn))
++				continue
++			var nm: NavigationMesh = load("%s/%d.res" % [dir, i])
++			if split_now:
++				# -- --navsplit: разрезать старые куски без перепечки (геометрия та же)
++				_nav_save_split(nm, nav_tiles[i], dir, i)
++				DirAccess.remove_absolute(ProjectSettings.globalize_path("%s/%d.res" % [dir, i]))
++			for sub in _nav_split(nm, nav_tiles[i]):
++				_add_nav_region(sub)
+ 		nav_ready = true
+ 		if "--navtest" in OS.get_cmdline_user_args():
+ 			_nav_selftest()
+@@ -1735,10 +1774,9 @@ func _setup_navigation(bake: bool) -> void:
+ 		_nav_clean(nm)
+ 		polys += nm.get_polygon_count()
+ 		if bake:
+-			ResourceSaver.save(nm, "%s/%d.res" % [dir, i], ResourceSaver.FLAG_COMPRESS)
+-		var region := NavigationRegion3D.new()
+-		region.navigation_mesh = nm
+-		add_child(region)
++			_nav_save_split(nm, nav_tiles[i], dir, i)
++		for sub in _nav_split(nm, nav_tiles[i]):
++			_add_nav_region(sub)
+ 		if i % 4 == 3:
+ 			progress.emit("Навигация %d%%" % (100 * (i + 1) / nav_tiles.size()))
+ 			await get_tree().process_frame
+@@ -1748,6 +1786,91 @@ func _setup_navigation(bake: bool) -> void:
+ 		_nav_selftest()
+ 
+ 
++## Каждый кусок навигации режется на NAV_SPLIT x NAV_SPLIT регионов (по центру полигона; общие рёбра — те же
++## вершины, сервер их сшивает). Зачем: запрос пути ищет ближайший полигон к началу и концу перебором полигонов
++## всех включённых регионов, а Enemy.nav_path включает только регионы рядом с отрезком — чем мельче регионы,
++## тем дешевле запрос (Долина: 16 регионов → 256, короткий путь ~5 мс → <0.3 мс на ПК).
++const NAV_SPLIT := 4
++
++
++func _nav_has_split(dir: String, i: int) -> bool:
++	for k in NAV_SPLIT * NAV_SPLIT:
++		if ResourceLoader.exists("%s/%d_%d.res" % [dir, i, k]):
++			return true
++	return false
++
++
++func _add_nav_region(nm: NavigationMesh) -> void:
++	var region := NavigationRegion3D.new()
++	region.navigation_mesh = nm
++	add_child(region)
++
++
++func _nav_save_split(nm: NavigationMesh, tile: AABB, dir: String, i: int) -> void:
++	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
++	for k in NAV_SPLIT * NAV_SPLIT:
++		var old := "%s/%d_%d.res" % [dir, i, k]
++		if FileAccess.file_exists(old):
++			DirAccess.remove_absolute(ProjectSettings.globalize_path(old))
++	var subs := _nav_split(nm, tile, true)
++	for k in subs.size():
++		var sub: NavigationMesh = subs[k]
++		if sub.get_polygon_count() > 0:
++			ResourceSaver.save(sub, "%s/%d_%d.res" % [dir, i, k], ResourceSaver.FLAG_COMPRESS)
++
++
++## keep_empty = true: ровно NAV_SPLIT² сеток (индекс = номер клетки), иначе только непустые.
++func _nav_split(nm: NavigationMesh, tile: AABB, keep_empty := false) -> Array[NavigationMesh]:
++	var verts := nm.vertices
++	var n := NAV_SPLIT
++	var cw := tile.size.x / n
++	var ch := tile.size.z / n
++	var cell_polys: Array = []
++	for k in n * n:
++		cell_polys.append([])
++	for pi in nm.get_polygon_count():
++		var pl := nm.get_polygon(pi)
++		var c := Vector3.ZERO
++		for v in pl:
++			c += verts[v]
++		c /= float(pl.size())
++		var cx := clampi(int((c.x - tile.position.x) / cw), 0, n - 1)
++		var cz := clampi(int((c.z - tile.position.z) / ch), 0, n - 1)
++		(cell_polys[cz * n + cx] as Array).append(pl)
++	var out: Array[NavigationMesh] = []
++	for k in n * n:
++		var list: Array = cell_polys[k]
++		if list.is_empty() and not keep_empty:
++			continue
++		var sub := NavigationMesh.new()
++		sub.cell_size = nm.cell_size
++		sub.cell_height = nm.cell_height
++		sub.agent_radius = nm.agent_radius
++		sub.agent_height = nm.agent_height
++		sub.agent_max_climb = nm.agent_max_climb
++		sub.agent_max_slope = nm.agent_max_slope
++		var remap := {}
++		var sv := PackedVector3Array()
++		var new_polys: Array[PackedInt32Array] = []
++		for pl in list:
++			var np := PackedInt32Array()
++			np.resize((pl as PackedInt32Array).size())
++			for j in (pl as PackedInt32Array).size():
++				var v: int = pl[j]
++				var r: int = remap.get(v, -1)
++				if r < 0:
++					r = sv.size()
++					remap[v] = r
++					sv.append(verts[v])
++				np[j] = r
++			new_polys.append(np)
++		sub.vertices = sv
++		for np in new_polys:
++			sub.add_polygon(np)
++		out.append(sub)
++	return out
++
++
+ ## Вершины на сетку (края соседних кусков совпадают точно) и чистка вырожденных полигонов:
+ ## после привязки к сетке Recast-полигоны схлопываются в «шипы» (ребро a-b-a), и сервер навигации
+ ## ругается «More than 2 edges tried to occupy the same map rasterization space».
+@@ -1848,6 +1971,51 @@ func _nav_drop_overlaps(verts: PackedVector3Array, polys: Array[PackedInt32Array
+ 		polys.assign(keep)
+ 
+ 
++## `-- --navbench` (можно --headless): число полигонов и время запросов пути — короткие/длинные/недостижимые,
++## старым способом (map_get_path) и с ограничением поиска (Enemy.nav_path).
++func nav_bench() -> void:
++	var map := get_world_3d().navigation_map
++	for i in 600:
++		await get_tree().physics_frame
++		if NavigationServer3D.map_get_iteration_id(map) > 0 and NavigationServer3D.map_get_closest_point(map, spawn_point) != Vector3.ZERO:
++			break
++	for i in 10:
++		await get_tree().physics_frame
++	var polys := 0
++	for r in NavigationServer3D.map_get_regions(map):
++		var rn: Node = instance_from_id(NavigationServer3D.region_get_owner_id(r)) if NavigationServer3D.region_get_owner_id(r) != 0 else null
++		if rn is NavigationRegion3D:
++			polys += (rn as NavigationRegion3D).navigation_mesh.get_polygon_count()
++	print("NAVBENCH %s: регионов %d, полигонов %d" % [map_key, NavigationServer3D.map_get_regions(map).size(), polys])
++	var rng := RandomNumberGenerator.new()
++	rng.seed = 7
++	var pts := PackedVector3Array()
++	for i in 400:
++		var x := rng.randf_range(nav_aabb.position.x + 20.0, nav_aabb.end.x - 20.0)
++		var z := rng.randf_range(nav_aabb.position.z + 20.0, nav_aabb.end.z - 20.0)
++		pts.append(NavigationServer3D.map_get_closest_point(map, Vector3(x, ground(x, z), z)))
++	for mode in ["кор", "сред", "длин", "мимо"]:
++		for lim in [false, true]:
++			var t := 0
++			var n := 0
++			var worst := 0
++			for i in 120:
++				var a := pts[i]
++				var b: Vector3
++				match mode:
++					"кор": b = a + Vector3(rng.randf_range(-12, 12), 0, rng.randf_range(-12, 12))
++					"сред": b = a + Vector3(rng.randf_range(-60, 60), 0, rng.randf_range(-60, 60))
++					"длин": b = pts[i + 200]
++					_: b = a + Vector3(rng.randf_range(-40, 40), 25.0, rng.randf_range(-40, 40))  # над землёй — недостижимо
++				var t0 := Time.get_ticks_usec()
++				var path: PackedVector3Array = Enemy.nav_path(map, a, b) if lim else NavigationServer3D.map_get_path(map, a, b, true)
++				var dt := Time.get_ticks_usec() - t0
++				t += dt
++				worst = maxi(worst, dt)
++				n += 1 if path.size() >= 2 else 0
++			print("NAVBENCH %s %s: среднее %.2f мс, худшее %.2f мс, найдено %d/120" % [mode, "огранич" if lim else "старый", t / 120000.0, worst / 1000.0, n])
++
++
+ ## `-- --navtest`: путь между центрами соседних кусков (через границу) — проверка, что куски сшиты.
+ func _nav_selftest() -> void:
+ 	var map := get_world_3d().navigation_map
+diff --git a/scripts/main.gd b/scripts/main.gd
+index 8bd41f7..7d0075a 100644
+--- a/scripts/main.gd
++++ b/scripts/main.gd
+@@ -59,6 +59,14 @@ func _ready() -> void:
+ 		level.bake_map_image()
+ 		get_tree().quit()
+ 		return
++	if "--navsplit" in args:
++		# -- --navsplit --map=N: старые куски навигации разрезаны и пересохранены в Level._setup_navigation
++		get_tree().quit()
++		return
++	if "--navbench" in args:
++		await level.nav_bench()
++		get_tree().quit()
++		return
+ 	Game.fx = Fx.new()
+ 	world.add_child(Game.fx)
+ 	Game.ballistics = Ballistics.new()
+@@ -1191,6 +1199,11 @@ func _bench() -> void:
+ 		return
+ 	if "--noshadow" in OS.get_cmdline_user_args():
+ 		level.sun.shadow_enabled = false
++	for a in OS.get_cmdline_user_args():
++		# --lod=N — принудительный порог LOD (проверка, работает ли LOD мешей в этом рендере)
++		if a.begins_with("--lod="):
++			get_viewport().mesh_lod_threshold = float(a.substr(6))
++			print("BENCH порог LOD = ", get_viewport().mesh_lod_threshold)
+ 	if "--nohud" in OS.get_cmdline_user_args():
+ 		hud.visible = false
+ 	for a in OS.get_cmdline_user_args():
+@@ -1200,8 +1213,11 @@ func _bench() -> void:
+ 				var nd = hud.get(part)
+ 				if nd is CanvasItem:
+ 					(nd as CanvasItem).visible = false
++	# бессмертие сразу: с --only первая точка может оказаться среди врагов (игрок погибал до замера)
++	p.hp = 100000.0
+ 	for v in views:
+ 		var at: Vector3 = v[1]
++		p.hp = 100000.0
+ 		p.global_position = _test_hop(at)
+ 		p.velocity = Vector3.ZERO
+ 		_aim(p, v[2] + Vector3(0, level.ground(v[2].x, v[2].z), 0))
+@@ -1222,12 +1238,73 @@ func _bench() -> void:
+ 			print("UI атлас=", UiBatch.atlas != null, " msdf=", UiBatch.is_msdf(hud.font), " шрифт=", hud.font)
+ 		if "--drawdump" in OS.get_cmdline_user_args():
+ 			draw_dump(v[0])
++		if "--trisplit" in OS.get_cmdline_user_args():
++			await _tri_split(v[0], at, v[2])
+ 		td += int(d / 20.0)
+ 		tp += int(pr / 20000.0)
+ 	print("BENCH ИТОГО (среднее)          draw=%4d prim=%4dk" % [td / views.size(), tp / views.size()])
+ 	get_tree().quit()
+ 
+ 
++## -- --bench --trisplit: откуда треугольники. Каждая группа геометрии (как в --drawdump) по очереди скрывается,
++## разница счётчика движка (вместе с тенями и LOD) — её настоящая цена в этом виде. Плюс цена теней.
++func _tri_split(tag: String, at: Vector3, look: Vector3) -> void:
++	var p: Player = Game.player
++	var prims := func() -> float:
++		var s0 := 0.0
++		for i in 4:
++			p.hp = 100000.0
++			p.global_position = _test_hop(at)
++			_aim(p, look + Vector3(0, level.ground(look.x, look.z), 0))
++			await get_tree().process_frame
++			if i >= 2:
++				s0 += Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
++		return s0 / 2.0
++	var base: float = await prims.call()
++	var groups := {}
++	var stack: Array[Node] = [world]
++	while not stack.is_empty():
++		var n: Node = stack.pop_back()
++		for ch in n.get_children():
++			stack.append(ch)
++		if n is GeometryInstance3D and (n as GeometryInstance3D).visible:
++			var psc: Script = n.get_parent().get_script()
++			var key := String(n.name).rstrip("0123456789_@").left(20) + " <" + (psc.resource_path.get_file() if psc else String(n.get_parent().name).rstrip("0123456789_@").left(14)) + ">"
++			if String(n.name).begins_with("@"):
++				# безымянные: различаем по текстуре/шейдеру первого материала и режиму тени
++				var gi := n as GeometryInstance3D
++				var m0: Material = gi.material_override
++				var msh: Mesh = (gi as MeshInstance3D).mesh if gi is MeshInstance3D else ((gi as MultiMeshInstance3D).multimesh.mesh if gi is MultiMeshInstance3D and (gi as MultiMeshInstance3D).multimesh else null)
++				if m0 == null and msh and msh.get_surface_count() > 0:
++					m0 = msh.surface_get_material(0)
++				var tx := "?"
++				if m0 is BaseMaterial3D and (m0 as BaseMaterial3D).albedo_texture:
++					tx = (m0 as BaseMaterial3D).albedo_texture.resource_path.get_file().left(16)
++				elif m0 is ShaderMaterial:
++					tx = "sh:" + (m0 as ShaderMaterial).shader.resource_path.get_file().left(12)
++				key += " [%s%s]" % [tx, " тень" if gi.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY else ""]
++			if not groups.has(key):
++				groups[key] = []
++			(groups[key] as Array).append(n)
++	var res := []
++	for k in groups:
++		for g in groups[k]:
++			(g as GeometryInstance3D).visible = false
++		var v: float = await prims.call()
++		for g in groups[k]:
++			(g as GeometryInstance3D).visible = true
++		if base - v > 2000.0:
++			res.append([k, base - v, (groups[k] as Array).size()])
++	res.sort_custom(func(a, b): return a[1] > b[1])
++	var sh := level.sun.shadow_enabled
++	level.sun.shadow_enabled = false
++	var nos: float = await prims.call()
++	level.sun.shadow_enabled = sh
++	print("TRISPLIT %s: всего %dk, тени %dk" % [tag, int(base / 1000.0), int((base - nos) / 1000.0)])
++	for r in res.slice(0, 18):
++		print("  %-64s узлов=%4d  %6dk" % [r[0], r[2], int(r[1] / 1000.0)])
++
++
+ # ------------------------------------------------------------------ тест утечки памяти (кнопка в настройках)
+ ## Бессмертный игрок воюет, а режимы сглаживания/свечения по очереди меняются на 15 с; в отчёт пишется
+ ## прирост памяти (PSS) за каждую фазу — так видно, что именно «течёт» на телефоне.
+diff --git a/scripts/minimap.gd b/scripts/minimap.gd
+index 0ab1d6a..cf7d471 100644
+--- a/scripts/minimap.gd
++++ b/scripts/minimap.gd
+@@ -51,6 +51,12 @@ static func label_of(g: Dictionary) -> String:
+ 
+ 
+ func _draw() -> void:
++	var t0_ := Time.get_ticks_usec()
++	_draw_body()
++	Prof.add(Prof.TOUCH, Time.get_ticks_usec() - t0_)
++
++
++func _draw_body() -> void:
+ 	var p: Player = Game.player
+ 	if p == null or p.dead or not Game.playing or Game.mission == null:
+ 		return
+diff --git a/scripts/mission.gd b/scripts/mission.gd
+index af209cd..fb4857f 100644
+--- a/scripts/mission.gd
++++ b/scripts/mission.gd
+@@ -76,6 +76,12 @@ func _obj(id: String) -> Dictionary:
+ 
+ 
+ func _process(delta: float) -> void:
++	var t0_ := Time.get_ticks_usec()
++	_tick(delta)
++	Prof.add(Prof.MAP, Time.get_ticks_usec() - t0_)
++
++
++func _tick(delta: float) -> void:
+ 	if not Game.playing or finished:
+ 		return
+ 	var p: Player = Game.player
+diff --git a/scripts/player.gd b/scripts/player.gd
+index 24134f4..402849e 100644
+--- a/scripts/player.gd
++++ b/scripts/player.gd
+@@ -313,6 +313,12 @@ func _update_assist(delta: float) -> void:
+ 
+ # ------------------------------------------------------------------ кадр
+ func _process(delta: float) -> void:
++	var t0_ := Time.get_ticks_usec()
++	_tick(delta)
++	Prof.add(Prof.PLY, Time.get_ticks_usec() - t0_)
++
++
++func _tick(delta: float) -> void:
+ 	if dead:
+ 		dead_t += delta
+ 		head.position.y = lerpf(head.position.y, 0.35, minf(1.0, delta * 3.0))
+diff --git a/scripts/prof.gd b/scripts/prof.gd
+new file mode 100644
+index 0000000..92b5522
+--- /dev/null
++++ b/scripts/prof.gd
+@@ -0,0 +1,75 @@
++class_name Prof
++## Лёгкий профайлер скриптов: время крупных блоков (мкс) копится за окно замера.
++##
++## Работает всегда (пара вызовов Time.get_ticks_usec на блок — копейки), чтобы журнал с телефона показывал
++## виновника: Blackbox раз в 10 с пишет строку «скр: ии=.. поза=.. …» (среднее мс на кадр) и пики (мс за один вызов).
++## С флагом `-- --prof` то же печатается в консоль раз в 2 с.
++## Блоки «путь», «взгляд» и «движ» вложены в «ии» (это его части), остальные не пересекаются.
++
++const AI := 0       # Enemy._physics_process целиком (восприятие, решения, движение, move_and_slide)
++const POSE := 1     # Enemy._process: анимация скелета
++const CROWD := 2    # FarCrowd._process
++const HUD := 3      # Hud._process + отрисовка HUD (draw_hud)
++const TOUCH := 4    # сенсорные кнопки (_draw) и мини-карта
++const VEH := 5      # Vehicle._physics_process (все машины)
++const BAL := 6      # Ballistics._physics_process
++const FX := 7       # Fx._process
++const PLY := 8      # Player._process (+ оружие)
++const MAP := 9      # _process карты (вода, флаги и т. п.) и миссии
++const BB := 10      # чёрный ящик / журнал
++const NAV := 11     # (в ИИ) NavigationServer3D.map_get_path
++const SEE := 12     # (в ИИ) восприятие: лучи зрения
++const MOVE := 13    # (в ИИ) move_and_slide
++const NAMES := ["ии", "поза", "толпа", "hud", "кноп", "маш", "пули", "fx", "игрок", "карта", "журн", "путь", "взгляд", "движ"]
++
++static var verbose := "--prof" in OS.get_cmdline_user_args()
++static var _sum := PackedInt64Array()
++static var _max := PackedInt64Array()
++static var _frames := 0
++static var _pframes0 := 0
++
++
++static func _init_arrays() -> void:
++	_sum.resize(NAMES.size())
++	_max.resize(NAMES.size())
++	_sum.fill(0)
++	_max.fill(0)
++
++
++## Добавить время блока i (мкс). Вызывать как Prof.add(Prof.AI, Time.get_ticks_usec() - t0).
++static func add(i: int, us: int) -> void:
++	if _sum.is_empty():
++		_init_arrays()
++	_sum[i] += us
++	if us > _max[i]:
++		_max[i] = us
++
++
++## Кадр закончился (зовёт Blackbox._process).
++static func frame() -> void:
++	_frames += 1
++
++
++## Итог окна замера одной строкой и сброс. Среднее — мс на отрисованный кадр; «пик» — самый долгий одиночный вызов блока.
++static func report(reset := true) -> String:
++	if _sum.is_empty():
++		_init_arrays()
++	var n := maxi(1, _frames)
++	var phys := Engine.get_physics_frames() - _pframes0
++	var s := "скр мс/кадр:"
++	var total := 0.0
++	for i in NAMES.size():
++		var ms := float(_sum[i]) / n / 1000.0
++		if i < NAV:
++			total += ms
++		s += " %s=%.1f" % [NAMES[i], ms]
++	s += " всего=%.1f физ/кадр=%.1f пик:" % [total, float(phys) / n]
++	for i in NAMES.size():
++		if _max[i] >= 2000:
++			s += " %s=%.0f" % [NAMES[i], _max[i] / 1000.0]
++	if reset:
++		_sum.fill(0)
++		_max.fill(0)
++		_frames = 0
++		_pframes0 = Engine.get_physics_frames()
++	return s
+diff --git a/scripts/prof.gd.uid b/scripts/prof.gd.uid
+new file mode 100644
+index 0000000..8b58bb1
+--- /dev/null
++++ b/scripts/prof.gd.uid
+@@ -0,0 +1 @@
++uid://g286a2p2qahb
+diff --git a/scripts/settings.gd b/scripts/settings.gd
+index 0c5085b..10ec35b 100644
+--- a/scripts/settings.gd
++++ b/scripts/settings.gd
+@@ -6,10 +6,10 @@ signal changed
+ const PATH := "user://settings.cfg"
+ const OVERRIDE := "user://override.cfg"
+ 
+-const VERSION := 5
++const VERSION := 6
+ const PRESETS := [
+-	{"name": "Низкое", "scale": 0.9, "shadows": 1, "aa": 1, "glow": false, "normal_maps": false, "veg": 0, "ssao": false, "draw": 0.8, "lod": 3.0},
+-	{"name": "Среднее", "scale": 1.0, "shadows": 2, "aa": 1, "glow": false, "normal_maps": true, "veg": 1, "ssao": false, "draw": 0.9, "lod": 2.0},
++	{"name": "Низкое", "scale": 0.9, "shadows": 1, "aa": 1, "glow": false, "normal_maps": false, "veg": 0, "ssao": false, "draw": 0.8, "lod": 6.0},
++	{"name": "Среднее", "scale": 1.0, "shadows": 2, "aa": 1, "glow": false, "normal_maps": true, "veg": 1, "ssao": false, "draw": 0.9, "lod": 3.5},
+ 	{"name": "Высокое", "scale": 1.0, "shadows": 3, "aa": 1, "glow": true, "normal_maps": true, "veg": 2, "ssao": false, "draw": 1.0, "lod": 1.0},
+ 	{"name": "Ультра", "scale": 1.0, "shadows": 4, "aa": 1, "glow": true, "normal_maps": true, "veg": 2, "ssao": true, "draw": 1.0, "lod": 1.0},
+ ]
+@@ -79,6 +79,11 @@ func _enter_tree() -> void:
+ 		if int(data.ver) < 5:
+ 			# новые пресеты рендерят чётче (низкое 0.9, среднее 1.0) — не ниже значения своего пресета
+ 			data.scale = maxf(float(data.scale), float(PRESETS[clampi(int(data.quality), 0, 3)].scale))
++		if int(data.ver) < 6:
++			# журнал 2.0: 300–500 тыс. треугольников даже на низком — агрессивнее LOD моделей на низком/среднем
++			var ql := clampi(int(data.quality), 0, 3)
++			if ql <= 1 and float(data.lod) < float(PRESETS[ql].lod):
++				data.lod = PRESETS[ql].lod
+ 		if int(data.ver) < 4:
+ 			# MSAA на Mali (GLES3) течёт ~0.8 МБ за кадр (тест памяти 1.6) — заменён своим FXAA
+ 			data.aa = 1
+@@ -167,7 +172,8 @@ func apply() -> void:
+ 	_ensure_fxaa()
+ 	vp.mesh_lod_threshold = data.lod
+ 	if "anisotropic_filtering_level" in vp:
+-		vp.set("anisotropic_filtering_level", clampi(data.quality + 2, 2, 4))
++		# анизотропия на Mali-G52 дорогая (каждая выборка рельефа — до 16 текселей): низкое 2x, среднее 4x, высокое 8x, ультра 16x
++		vp.set("anisotropic_filtering_level", clampi(int(data.quality) + 1, 1, 4))
+ 	# резче текстуры вдали (особенно при масштабе рендера ниже 100%)
+ 	vp.texture_mipmap_bias = -0.6 if dyn_scale < 0.95 else -0.3
+ 	var sh: int = clampi(data.shadows, 0, 4)
+diff --git a/scripts/terrain.gdshader b/scripts/terrain.gdshader
+index 58982c2..9bde36b 100644
+--- a/scripts/terrain.gdshader
++++ b/scripts/terrain.gdshader
+@@ -45,15 +45,20 @@ void fragment() {
+ 		vec3 far = texture(tex_a, UV * 0.13).rgb;
+ 		alb = mix(alb, mix(far, alb, 0.35), smoothstep(25.0, 110.0, dist));
+ 	}
+-	// скала: на крутом склоне проекция сбоку (иначе текстура вытягивается), полосы слоёв по высоте
+-	vec3 r = texture(tex_r, UV * 0.55).rgb;
+-	if (slope > 0.22) {
+-		vec2 uvs = vec2(wpos.x + wpos.z * 0.8, wpos.y) * tile * 0.55;
+-		r = mix(r, texture(tex_r, uvs).rgb, smoothstep(0.22, 0.5, slope));
++	// скала — только там, где она есть (на ровной земле не тратим 2–3 выборки текстуры)
++	if (wr > 0.001) {
++		// скала: на крутом склоне проекция сбоку (иначе текстура вытягивается), полосы слоёв по высоте
++		vec3 r = texture(tex_r, UV * 0.55).rgb;
++		if (slope > 0.22) {
++			vec2 uvs = vec2(wpos.x + wpos.z * 0.8, wpos.y) * tile * 0.55;
++			r = mix(r, texture(tex_r, uvs).rgb, smoothstep(0.22, 0.5, slope));
++		}
++		if (strata > 0.0) {
++			float band = sin(wpos.y * 0.9 + m * 7.0) * 0.5 + 0.5;
++			r *= 1.0 - strata * (0.2 * band + 0.12 * smoothstep(0.55, 0.9, texture(macro, vec2(wpos.y * 0.021, (wpos.x + wpos.z) * 0.004)).r));
++		}
++		alb = mix(alb, r * rock_dark, wr);
+ 	}
+-	float band = sin(wpos.y * 0.9 + m * 7.0) * 0.5 + 0.5;
+-	r *= 1.0 - strata * (0.2 * band + 0.12 * smoothstep(0.55, 0.9, texture(macro, vec2(wpos.y * 0.021, (wpos.x + wpos.z) * 0.004)).r));
+-	alb = mix(alb, r * rock_dark, wr);
+ 	alb = mix(vec3(dot(alb, vec3(0.3, 0.59, 0.11))), alb, 0.72) * tint;
+ 	float lum = dot(a, vec3(0.3, 0.59, 0.11));
+ 	// разводы тёплой и холодной земли
+@@ -78,7 +83,7 @@ void fragment() {
+ 	alb *= 0.93 + 0.14 * texture(macro, wpos.xz * 0.19).r;
+ 	// зерно/камешки под ногами и мелкая текстура вблизи (до 40 м), тёмные осыпи на склонах
+ 	float near = 1.0 - smoothstep(12.0, 40.0, dist);
+-	if (near > 0.01) {
++	if (near > 0.01 && use_far > 0.5) {
+ 		float dn = dot(texture(tex_a, UV * 4.3).rgb, vec3(0.3, 0.59, 0.11));
+ 		alb *= mix(1.0, 0.7 + 0.6 * dn / max(lum, 0.15), near * 0.5 * (1.0 - wr));
+ 		alb *= mix(1.0, 0.86 + 0.28 * texture(macro, wpos.xz * 1.7).r, near);
+diff --git a/scripts/touch.gd b/scripts/touch.gd
+index 46156d5..ee1e176 100644
+--- a/scripts/touch.gd
++++ b/scripts/touch.gd
+@@ -217,6 +217,12 @@ var ub := UiBatch.new()
+ 
+ 
+ func _draw() -> void:
++	var t0_ := Time.get_ticks_usec()
++	_draw_body()
++	Prof.add(Prof.TOUCH, Time.get_ticks_usec() - t0_)
++
++
++func _draw_body() -> void:
+ 	var p: Player = Game.player
+ 	if p == null or p.dead or not Game.playing:
+ 		return
+diff --git a/scripts/ui_batch.gd b/scripts/ui_batch.gd
+index 073b5b6..6141d4e 100644
+--- a/scripts/ui_batch.gd
++++ b/scripts/ui_batch.gd
+@@ -138,6 +138,8 @@ func begin(target: Control, f: Font) -> void:
+ 	_lines.clear()
+ 	_prims.clear()
+ 	_texts.clear()
++	_texts_static.clear()
++	static_mode = false
+ 
+ 
+ func ready() -> bool:
+@@ -255,9 +257,47 @@ func icon(id: String, ctr: Vector2, r: float, col: Color) -> void:
+ 
+ 
+ func text(pos: Vector2, s: String, size: int, col: Color, align := HORIZONTAL_ALIGNMENT_LEFT, width := -1.0) -> void:
++	if static_mode and is_msdf(font) and not no_glyph_sort:
++		_texts_static.append([pos, s, size, col, align, width])
++		return
+ 	_texts.append([pos, s, size, col, align, width])
+ 
+ 
++## «Неподвижный» текст (список задач, здоровье, боезапас, сообщения): пишется в отдельный дочерний элемент холста,
++## который перезаписывается только когда набор надписей изменился (сравнение по хэшу). Отрисовка глифа — два
++## вызова TextServer (обводка + заливка), ~2.5 мкс на ПК, а глифов в HUD ~300: перерисовка каждый кадр стоила
++## ~2 мс на ПК (замер 2.0), на телефоне ~10 мс. Элемент — потомок холста: рисуется после его команд (поверх).
++var static_mode := false
++var _texts_static: Array = []
++var _static_ci := RID()
++var _static_hash := 0
++
++
++## Холст не рисует HUD в этом кадре (ранний выход до begin) — убрать неподвижный текст.
++func clear_static() -> void:
++	if _static_ci.is_valid() and _static_hash != 0:
++		RenderingServer.canvas_item_clear(_static_ci)
++	_static_hash = 0
++
++
++func _flush_static() -> void:
++	var h := _texts_static.hash() if not _texts_static.is_empty() else 0
++	if h == _static_hash:
++		return
++	_static_hash = h
++	if not _static_ci.is_valid():
++		_static_ci = RenderingServer.canvas_item_create()
++		RenderingServer.canvas_item_set_parent(_static_ci, c.get_canvas_item())
++	RenderingServer.canvas_item_clear(_static_ci)
++	if h != 0:
++		_flush_glyphs(_texts_static, _static_ci)
++
++
++func _notification(what: int) -> void:
++	if what == NOTIFICATION_PREDELETE and _static_ci.is_valid():
++		RenderingServer.free_rid(_static_ci)
++
++
+ func flush() -> void:
+ 	for q in _quads:
+ 		c.draw_texture_rect_region(atlas, q[0], q[1], q[2])
+@@ -274,8 +314,11 @@ func flush() -> void:
+ 	# обводки всех надписей, затем сами надписи: у MSDF-шрифта одна текстура — один вызов;
+ 	# у обычного каждый размер — своя текстура, поэтому группируем по размеру
+ 	var msdf := is_msdf(font)
++	if msdf and not no_glyph_sort:
++		_flush_static()
++		_texts_static.clear()
+ 	if msdf and not _texts.is_empty() and not no_glyph_sort:
+-		_flush_glyphs()
++		_flush_glyphs(_texts, c.get_canvas_item())
+ 		_quads.clear()
+ 		_lines.clear()
+ 		_prims.clear()
+@@ -305,57 +348,107 @@ static var no_glyph_sort := "--noglyphsort" in OS.get_cmdline_user_args()
+ static var _lines_cache := {}
+ 
+ 
+-static func _shaped(s: String, size: int, f: Font) -> TextLine:
++## Раскладка строки на глифы, посчитанная один раз (замер 2.0: разбор shaped_text_get_glyphs — массив словарей
++## на каждую строку каждый кадр — и поиск страницы каждого глифа стоили ~1 мс на ПК, ~6–8 мс на телефоне).
++class Laid:
++	var width := 0.0
++	var frids: Array[RID] = []
++	var sizes := PackedInt32Array()
++	var offs := PackedVector2Array()  # от начала строки (с учётом advance)
++	var gids := PackedInt32Array()
++	var pages := PackedInt32Array()   # ключ страницы текстуры глифа (rid шрифта + индекс текстуры)
++
++
++static func _laid(s: String, size: int, f: Font) -> Laid:
+ 	var key := "%d|%s" % [size, s]
+-	var tl: TextLine = _lines_cache.get(key)
+-	if tl == null:
+-		if _lines_cache.size() > 400:
+-			# вытесняем самые старые 100 (словарь хранит порядок вставки), а не весь кэш — без рывка
+-			var old: Array = _lines_cache.keys().slice(0, 100)
+-			for k in old:
+-				_lines_cache.erase(k)
+-		tl = TextLine.new()
+-		tl.add_string(s, f, size)
+-		_lines_cache[key] = tl
+-	return tl
+-
+-
+-func _flush_glyphs() -> void:
++	var l: Laid = _lines_cache.get(key)
++	if l != null:
++		return l
++	if _lines_cache.size() > 400:
++		# вытесняем самые старые 100 (словарь хранит порядок вставки), а не весь кэш — без рывка
++		var old: Array = _lines_cache.keys().slice(0, 100)
++		for k in old:
++			_lines_cache.erase(k)
++	var ts := TextServerManager.get_primary_interface()
++	var tl := TextLine.new()
++	tl.add_string(s, f, size)
++	l = Laid.new()
++	l.width = tl.get_line_width()
++	var pen := 0.0
++	var ok := true
++	for g in ts.shaped_text_get_glyphs(tl.get_rid()):
++		var gi: int = g["index"]
++		var frid: RID = g["font_rid"]
++		var adv: float = g["advance"]
++		var rep: int = g.get("repeat", 1)
++		for r in rep:
++			if gi != 0 and frid.is_valid():
++				var fs: int = g["font_size"]
++				l.frids.append(frid)
++				l.sizes.append(fs)
++				l.offs.append(Vector2(pen, 0.0) + (g["offset"] as Vector2))
++				l.gids.append(gi)
++				var page := ts.font_get_glyph_texture_idx(frid, Vector2i(fs, 0), gi)
++				if page < 0:
++					ok = false
++				l.pages.append(frid.get_id() * 64 + page)
++			pen += adv
++	if ok:
++		# глиф ещё не в текстуре кэша (страница неизвестна) — не запоминаем, разложим заново в следующем кадре
++		_lines_cache[key] = l
++	return l
++
++
++# Глифы кадра — плоские массивы (переиспользуются; обращение к своим полям дешевле, чем к полям других объектов)
++var _g_frid: Array[RID] = []
++var _g_size := PackedInt32Array()
++var _g_pos := PackedVector2Array()
++var _g_gid := PackedInt32Array()
++var _g_col := PackedColorArray()
++var _g_page := PackedInt32Array()
++var _g_pages := PackedInt32Array()
++
++
++func _flush_glyphs(texts: Array, ci: RID) -> void:
+ 	var ts := TextServerManager.get_primary_interface()
+-	var ci := c.get_canvas_item()
+-	var pages := {}  # страница (rid шрифта, индекс текстуры) -> [[rid, size, pos, glyph, color], ...]
+-	var order: Array = []
+-	for t in _texts:
+-		var s: String = t[1]
++	_g_frid.clear()
++	_g_size.clear()
++	_g_pos.clear()
++	_g_gid.clear()
++	_g_col.clear()
++	_g_page.clear()
++	_g_pages.clear()
++	for t in texts:
+ 		var size: int = t[2]
+ 		var col: Color = t[3]
+ 		var align: int = t[4]
+ 		var width: float = t[5]
+-		var tl := _shaped(s, size, font)
++		var l := _laid(t[1], size, font)
+ 		var pen := Vector2(t[0])
+ 		if width > 0.0 and align != HORIZONTAL_ALIGNMENT_LEFT:
+-			var lw := tl.get_line_width()
+-			pen.x += (width - lw) * (0.5 if align == HORIZONTAL_ALIGNMENT_CENTER else 1.0)
+-		for g in ts.shaped_text_get_glyphs(tl.get_rid()):
+-			var gi: int = g["index"]
+-			var frid: RID = g["font_rid"]
+-			var adv: float = g["advance"]
+-			var rep: int = g.get("repeat", 1)
+-			for r in rep:
+-				if gi != 0 and frid.is_valid():
+-					var fs: int = g["font_size"]
+-					var page := ts.font_get_glyph_texture_idx(frid, Vector2i(fs, 0), gi)
+-					var key := [frid, page]
+-					if not pages.has(key):
+-						pages[key] = []
+-						order.append(key)
+-					(pages[key] as Array).append([frid, fs, pen + (g["offset"] as Vector2), gi, col])
+-				pen.x += adv
+-	var ow := 8
+-	for key in order:
+-		for it in pages[key]:
+-			var col2: Color = it[4]
+-			ts.font_draw_glyph_outline(it[0], ci, it[1], ow, it[2], it[3], Color(0, 0, 0, 0.75 * col2.a))
+-	for key in order:
+-		for it in pages[key]:
+-			ts.font_draw_glyph(it[0], ci, it[1], it[2], it[3], it[4])
++			pen.x += (width - l.width) * (0.5 if align == HORIZONTAL_ALIGNMENT_CENTER else 1.0)
++		var n := l.gids.size()
++		if n == 0:
++			continue
++		_g_frid.append_array(l.frids)
++		_g_size.append_array(l.sizes)
++		_g_gid.append_array(l.gids)
++		_g_page.append_array(l.pages)
++		var offs := l.offs
++		for i in n:
++			_g_pos.append(pen + offs[i])
++			_g_col.append(col)
++		for pk in l.pages:
++			if not _g_pages.has(pk):
++				_g_pages.append(pk)
++	var total := _g_gid.size()
++	var single := _g_pages.size() <= 1
++	# все обводки, затем все заливки; внутри — по страницам текстуры (обычно одна-две), чтобы не рвать пакет
++	for pk in _g_pages:
++		for i in total:
++			if single or _g_page[i] == pk:
++				ts.font_draw_glyph_outline(_g_frid[i], ci, _g_size[i], 8, _g_pos[i], _g_gid[i], Color(0, 0, 0, 0.75 * _g_col[i].a))
++	for pk in _g_pages:
++		for i in total:
++			if single or _g_page[i] == pk:
++				ts.font_draw_glyph(_g_frid[i], ci, _g_size[i], _g_pos[i], _g_gid[i], _g_col[i])
+diff --git a/scripts/vehicle.gd b/scripts/vehicle.gd
+index 272f35f..6bba6cf 100644
+--- a/scripts/vehicle.gd
++++ b/scripts/vehicle.gd
+@@ -276,6 +276,12 @@ func _crash_check(delta: float) -> void:
+ 
+ 
+ func _physics_process(delta: float) -> void:
++	var t0_ := Time.get_ticks_usec()
++	_phys_step(delta)
++	Prof.add(Prof.VEH, Time.get_ticks_usec() - t0_)
++
++
++func _phys_step(delta: float) -> void:
+ 	if dead:
+ 		_burn_t -= delta
+ 		return
+@@ -357,10 +363,14 @@ func _ram(_delta: float) -> void:
+ 	var bb := model.body_aabb
+ 	var reach := bb.size.z * 0.5 + 0.6
+ 	var now := Time.get_ticks_msec()
++	# обратное преобразование — одно на кадр, дальние враги отсекаются по расстоянию (было: обращение матрицы на каждого из ~125)
++	var inv := global_transform.affine_inverse()
++	var gp := global_position
++	var r2 := (reach + bb.size.x + 2.0) * (reach + bb.size.x + 2.0)
+ 	for e in Game.enemies:
+-		if not is_instance_valid(e) or not e.alive():
++		if not is_instance_valid(e) or (e as Enemy).global_position.distance_squared_to(gp) > r2 or not e.alive():
+ 			continue
+-		var rel: Vector3 = global_transform.affine_inverse() * (e as Enemy).global_position
++		var rel: Vector3 = inv * (e as Enemy).global_position
+ 		if absf(rel.x) < bb.size.x * 0.5 + 0.4 and absf(rel.z) < reach and rel.y > -1.0 and rel.y < 2.0:
+ 			if int(_hit_cool.get(e, 0)) > now:
+ 				continue
+@@ -371,7 +381,7 @@ func _ram(_delta: float) -> void:
+ 			Sfx.play_at("hit_body", (e as Enemy).global_position + Vector3(0, 1, 0), 0.0, 0.8, 8.0, 80.0)
+ 	var p: Player = Game.player
+ 	if p and not p.dead and p.vehicle == null and ai:
+-		var rp: Vector3 = global_transform.affine_inverse() * p.global_position
++		var rp: Vector3 = inv * p.global_position
+ 		if absf(rp.x) < bb.size.x * 0.5 + 0.4 and absf(rp.z) < reach and rp.y > -1.0 and rp.y < 2.0:
+ 			if int(_hit_cool.get(p, 0)) <= now:
+ 				_hit_cool[p] = now + 800

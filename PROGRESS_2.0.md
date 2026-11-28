@@ -14,6 +14,26 @@
 Поиск по коду — ТОЛЬКО агентами на Haiku (требование пользователя). Бэкап 1.8: C:\Users\user\GranitOps_backup_1.8.
 Общий прогресс ≈ 35%.
 
+## Этап 2.1 — ОСТАНОВЛЕН пользователем 28.11.2026 ~05:25 UTC (≈65%)
+
+Журнал с телефона 2.0 (ветка `logs`, logs/NIC-LX1/2026-11-28_08-57-25.txt): бой 12–19 FPS на «Низком», draw 50–140,
+треугольники 150–500k, «мс: кадр» 20–45 (упор в CPU), физика до 30–40 мс в конце (Перевал/машина), PSS ~1.1–1.2 ГБ, тепло 0.
+Отзыв: машина дёргается, нет урона от ударов, лаги даже на «Среднем», звуки 8-бит, графику можно ещё лучше.
+
+Готово и слито в claude/repo-review-plan-yzaqnw:
+- Машины: камера/игрок по get_global_transform_interpolated (рывки), урон от ударов/падений (contact_monitor, CRASH_MIN 4.5 м/с,
+  урон водителю при dv>9), UAZ-452 грузится (текстуры в assets/vehicles/tex, защита от null в _place_vehicle).
+- Звуки: настоящие записи CC0 с OpenGameArt (assets/sfx/LICENSES.md), 77 имён / 212 вариантов, 4,8 МБ; Sfx.engine, casing, set_map,
+  шаги с поверхностью; tools/build_sfx.py, tools/sfx_test.gd. Не проверено на слух.
+
+НЕ доделано — производительность CPU/треугольники (агент Opus остановлен на середине, НЕ ПРОВЕРЕНО):
+- Код сохранён: локальная ветка worktree-agent-a1f070865c138964c (коммиты 4d0c016, 5b7b078) и патч wip/perf_opus_wip.patch
+  (только scripts/tools/CLAUDE.md; перепеченные assets/maps/*_terrain.res и nav в патч не вошли — при применении перепечь `--bake --map=N`).
+- Содержимое WIP: scripts/prof.gd (профайлер `--prof`), правки ИИ/навигации в level.gd, ui_batch.gd (аллокации глифов), hud, far_crowd,
+  settings (LOD/дальности по пресетам), terrain.gdshader, vehicle.gd.
+- Дальше: продолжить с WIP (или заново): найти, что съедает 20–45 мс process и пики физики; треугольники низкий ≤200–250k, средний ≤300k;
+  разбивка времени в строке журнала; затем APK 2.1 (versionCode 11).
+
 ## Готово
 - **Движок больших карт** (scripts/level.gd = база, карты — наследники; Level.MAPS, Level.create(id), `-- --map=N`):
   рельеф кусками с 2 LOD (far_step), кэш TerrainData (scripts/terrain_data.gd, assets/maps/<key>_terrain.res, ключ terrain_key()),
